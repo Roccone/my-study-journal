@@ -168,12 +168,14 @@ function rank() {
 const ui = {
   open: false, section: null, view: { kind: "date", date: today() },
   composer: null, todayTag: "all", allTasks: false, editing: null, answering: null,
-  planOpen: new Set(), planScrolled: false, lastCurrent: null, allAnim: false, nf: { date: null, q: "" }, scroll: {}, lastSection: null, flipping: false
+  planOpen: new Set(), planScrolled: false, lastCurrent: null, allAnim: false, selected: null, editText: null, editImages: [], imgTarget: null, tf: { date: null, q: "" }, nf: { date: null, q: "" }, scroll: {}, lastSection: null, flipping: false
 };
-const ORDER = { plan: 0, today: 1, notes: 2 };
+const ORDER = { plan: 0, today: 1, notes: 2, trash: 3 };
 
 /* ---------- rendering ---------- */
 function render() {
+  const tn = trashNotes().length;
+  $("#trashTabs").innerHTML = tn ? `<button class="tab trash" data-s="trash" title="Cestino">🗑<small>${tn}</small></button>` : "";
   document.querySelectorAll(".tab").forEach(b => b.classList.toggle("active", ui.open && b.dataset.s === ui.section));
   $("#coverSeal").textContent = rank().k;
   closeCal();
@@ -185,6 +187,7 @@ function render() {
   $("#spreadHead").classList.remove("show");
   if (ui.section === "plan") renderPlan(L, R);
   else if (ui.section === "today") renderToday(L, R);
+  else if (ui.section === "trash") renderTrash(L, R);
   else renderNotes(L, R);
   if (same) document.querySelectorAll("[data-keep]").forEach(el => { if (ui.scroll[el.dataset.keep] != null) el.scrollTop = ui.scroll[el.dataset.keep]; });
   ui.lastSection = ui.section;
@@ -255,16 +258,17 @@ function renderPlan(L, R) {
 function noteCounts(list) { return { n: list.some(x => x.type === "note"), q: list.some(x => x.type === "question") }; }
 function notesPanel(date) {
   const isT = date === today();
-  const items = D.notes.filter(n => n.date === date).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const items = liveNotes().filter(n => n.date === date).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   let html = `<h2 class="h-title nq-title">Notes and questions</h2>`;
   if (ui.composer) {
     const q = ui.composer.type === "question", withAns = q && ui.composer.answer !== null;
     return html + `<div class="composer"><div class="row"><span class="lab">${q ? "❓ New question" : "📝 New note"}</span><span class="spacer"></span>
-      <button class="btn ter" id="cCancel">Cancel</button><button class="btn primary" id="cSave">✓ Done</button></div>
+      <button class="btn sec" id="cImg" title="Add image (or paste one)">🖼</button><button class="btn ter" id="cCancel">Cancel</button><button class="btn primary" id="cSave">✓ Done</button></div>
       <div class="qa"><textarea id="cText" placeholder="${q ? "What do you want to ask?" : "Write your note…"}">${esc(ui.composer.text)}</textarea>
       ${q && !withAns ? `<button class="btn sec add-ans" id="cAddAns">+ Add answer</button>` : ""}
       ${withAns ? `<div class="ans-line"></div><textarea id="cAns" placeholder="Write the answer…">${esc(ui.composer.answer)}</textarea>` : ""}</div>
-      <div class="hint">Enter to save · Shift+Enter for a new line</div></div>`;
+      ${thumbs(ui.composer.images, true)}
+      <div class="hint">Enter to save · Shift+Enter for a new line · paste or 🖼 to add images · links become clickable</div></div>`;
   }
   if (isT) html += `<div class="add-row"><button class="btn" data-add="note">+ 📝</button><button class="btn" data-add="question">+ ❓</button></div>`;
   if (!items.length) return html + (isT ? "" : `<p class="empty">No notes on this day</p>`);
@@ -280,20 +284,37 @@ function notesPanel(date) {
   const list = items.filter(n => tag === "all" || n.type === tag);
   return html + `<div class="tags">${tags}</div><div class="scroll" data-keep="todayCards" style="flex:1"><div class="cards">${list.map(n => cardHtml(n)).join("")}</div></div>`;
 }
+function linkify(t) {
+  return esc(t).replace(/(\bhttps?:\/\/[^\s<]+|\bwww\.[^\s<]+)/gi, m => {
+    const trail = (m.match(/[.,;:!?)\]]+$/) || [""])[0], url = trail ? m.slice(0, -trail.length) : m;
+    const href = /^www\./i.test(url) ? "https://" + url : url;
+    return `<a href="${href}" target="_blank" rel="noopener noreferrer">${url}</a>${trail}`;
+  });
+}
+function thumbs(ids, editable) {
+  if (!ids || !ids.length) return "";
+  return `<div class="thumbs">${ids.map(id => `<span class="th"><img class="thumb" data-img="${id}" alt="">${editable ? `<button class="th-x" data-rmimg="${id}" title="Remove image">×</button>` : ""}</span>`).join("")}</div>`;
+}
 function cardHtml(n, o = {}) {
   const isQ = n.type === "question";
   const ic = `<div class="ic">${isQ ? "❓" : "📝"}</div>`;
+  const sel = ui.selected === n.id ? "selected" : "";
+  if (o.trash) {
+    return `<div class="card ${isQ ? "q" : ""} ${sel}" data-card="${n.id}">${ic}<div class="body">${isQ ? `<div class="qtext">${linkify(n.text)}</div>` : `<div class="txt">${linkify(n.text)}</div>`}${thumbs(n.images)}${isQ && n.answer ? `<div class="ans"><div class="atext">${linkify(n.answer)}</div></div>` : ""}
+      <div class="when">written ${relDay(n.date).toLowerCase()} · deleted at ${fmtTime(n.deletedAt)}</div></div>
+      <div class="tools wide"><button class="btn sec" data-restore="${n.id}">↩︎ Ripristina</button><button class="btn ter danger" data-purge="${n.id}">Elimina</button></div></div>`;
+  }
   if (ui.editing === n.id) {
-    return `<div class="card ${isQ ? "q" : ""}">${ic}<div class="body"><textarea data-edit="${n.id}">${esc(n.text)}</textarea>
-      <div class="edit-act"><button class="btn ter" data-cancel>Cancel</button><button class="btn primary" data-save-edit="${n.id}">Save</button></div></div></div>`;
+    return `<div class="card ${isQ ? "q" : ""}">${ic}<div class="body"><textarea data-edit="${n.id}">${esc(ui.editText ?? n.text)}</textarea>${thumbs(ui.editImages, true)}
+      <div class="edit-act"><button class="btn sec" id="eImg" title="Add image">🖼 Image</button><span class="spacer"></span><button class="btn ter" data-cancel>Cancel</button><button class="btn primary" data-save-edit="${n.id}">✓ Save</button></div></div></div>`;
   }
   let ans = "";
   if (isQ && ui.answering === n.id) {
     ans = `<div class="ans"><textarea data-answer="${n.id}" placeholder="Write the answer…">${esc(n.answer || "")}</textarea>
       <div class="edit-act"><button class="btn ter" data-cancel>Cancel</button><button class="btn primary" data-save-answer="${n.id}">Save answer</button></div></div>`;
-  } else if (isQ && n.answer) ans = `<div class="ans"><div class="atext">${esc(n.answer)}</div></div>`;
+  } else if (isQ && n.answer) ans = `<div class="ans"><div class="atext">${linkify(n.answer)}</div></div>`;
   const tools = `<div class="tools"><button title="Edit" data-edit-btn="${n.id}">✍🏻</button>${isQ ? `<button title="Answer" data-answer-btn="${n.id}">❗️</button>` : ""}${o.goto ? `<button title="Open the journal page" data-goto="${n.id}">📖</button>` : ""}</div>`;
-  return `<div class="card ${isQ ? "q" : ""}">${ic}<div class="body">${isQ ? `<div class="qtext">${esc(n.text)}</div>` : `<div class="txt">${esc(n.text)}</div>`}${ans}<div class="when">${fmtTime(n.createdAt)}${n.updatedAt !== n.createdAt ? " · edited" : ""}</div></div>${tools}</div>`;
+  return `<div class="card ${isQ ? "q" : ""} ${sel}" data-card="${n.id}">${ic}<div class="body">${isQ ? `<div class="qtext">${linkify(n.text)}</div>` : `<div class="txt">${linkify(n.text)}</div>`}${thumbs(n.images)}${ans}<div class="when">${fmtTime(n.createdAt)}${n.updatedAt !== n.createdAt ? " · edited" : ""}</div></div>${tools}<button class="trash-btn" data-trash="${n.id}" title="Move to trash">🗑</button></div>`;
 }
 function renderToday(L, R) {
   const v = ui.view, t = today(), isTodayView = v.kind === "date" && v.date === t;
@@ -366,10 +387,10 @@ function renderNotesLists() {
   document.querySelectorAll("[data-keep]").forEach(el => { ui.scroll[el.dataset.keep] = el.scrollTop; });
   const q = ui.nf.q.trim().toLowerCase();
   const f = n => (!ui.nf.date || n.date === ui.nf.date) && (!q || (n.text + " " + (n.answer || "")).toLowerCase().includes(q));
-  const sorted = D.notes.filter(f).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const sorted = liveNotes().filter(f).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const notes = sorted.filter(n => n.type === "note"), qs = sorted.filter(n => n.type === "question");
   const grouped = list => {
-    if (!list.length) return `<p class="empty">${D.notes.length ? "Nothing matches" : "Nothing here yet"}</p>`;
+    if (!list.length) return `<p class="empty">${liveNotes().length ? "Nothing matches" : "Nothing here yet"}</p>`;
     let html = "", last = null;
     list.forEach(n => { if (n.date !== last) { html += `<div class="sep"><span>${relDay(n.date)}</span></div>`; last = n.date; } html += cardHtml(n, { goto: true }); });
     return `<div class="cards">${html}</div>`;
@@ -378,6 +399,57 @@ function renderNotesLists() {
   R.innerHTML = `<div class="col-title">❓ Questions <small>${qs.length}</small></div><div class="scroll" data-keep="nR" style="flex:1">${grouped(qs)}</div>`;
   document.querySelectorAll("[data-keep]").forEach(el => { if (ui.scroll[el.dataset.keep] != null) el.scrollTop = ui.scroll[el.dataset.keep]; });
 }
+
+/* --- Cestino --- */
+function renderTrash(L, R) {
+  const sh = $("#spreadHead");
+  sh.classList.add("show");
+  sh.innerHTML = `<h2 class="h-title">Cestino</h2>
+    <div class="filters"><div class="date-filter"><input id="tfDate" placeholder="dd/mm/yyyy" value="${ui.tf.date ? toDmy(ui.tf.date) : ""}">
+      ${ui.tf.date ? `<button class="clear-x" id="tfClear" title="Clear date">✕</button>` : ""}<button class="icon-btn" id="tfCal" style="width:28px;height:28px" title="Deleted on…">📅</button></div>
+      <div class="search">🔍<input id="tfQ" placeholder="Search the trash" value="${esc(ui.tf.q)}"><button class="clear-x" id="tfQClear" ${ui.tf.q ? "" : "hidden"}>✕</button></div></div>`;
+  L.classList.add("notes-mode"); R.classList.add("notes-mode");
+  renderTrashLists();
+}
+function renderTrashLists() {
+  const L = $("#left"), R = $("#right");
+  document.querySelectorAll("[data-keep]").forEach(el => { ui.scroll[el.dataset.keep] = el.scrollTop; });
+  const q = ui.tf.q.trim().toLowerCase();
+  const f = n => (!ui.tf.date || delDate(n) === ui.tf.date) && (!q || (n.text + " " + (n.answer || "")).toLowerCase().includes(q));
+  const sorted = trashNotes().filter(f).sort((a, b) => b.deletedAt.localeCompare(a.deletedAt));
+  const grouped = list => {
+    if (!list.length) return `<p class="empty">${trashNotes().length ? "Nothing matches" : "The trash is empty"}</p>`;
+    let html = "", last = null;
+    list.forEach(n => { const d = delDate(n); if (d !== last) { html += `<div class="sep"><span>Deleted ${relDay(d).replace(/^(Today|Yesterday)$/, m => m.toLowerCase())}</span></div>`; last = d; } html += cardHtml(n, { trash: true }); });
+    return `<div class="cards">${html}</div>`;
+  };
+  const notes = sorted.filter(n => n.type === "note"), qs = sorted.filter(n => n.type === "question");
+  L.innerHTML = `<div class="col-title">📝 Notes <small>${notes.length}</small></div><div class="scroll" data-keep="tL" style="flex:1">${grouped(notes)}</div>`;
+  R.innerHTML = `<div class="col-title">❓ Questions <small>${qs.length}</small></div><div class="scroll" data-keep="tR" style="flex:1">${grouped(qs)}</div>`;
+  document.querySelectorAll("[data-keep]").forEach(el => { if (ui.scroll[el.dataset.keep] != null) el.scrollTop = ui.scroll[el.dataset.keep]; });
+}
+function refreshLists() {
+  if (ui.section === "trash") { if (!trashNotes().length) { render0Tabs(); go("notes"); return; } renderTrashLists(); render0Tabs(); }
+  else if (ui.section === "notes") { renderNotesLists(); render0Tabs(); }
+  else render();
+}
+function render0Tabs() {
+  const tn = trashNotes().length;
+  $("#trashTabs").innerHTML = tn ? `<button class="tab trash ${ui.section === "trash" ? "active" : ""}" data-s="trash" title="Cestino">🗑<small>${tn}</small></button>` : "";
+}
+
+/* modal di conferma */
+function confirmPurge(n) {
+  const m = $("#modal"), kind = n.type === "question" ? "questa domanda" : "questa nota";
+  m.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
+    <h3>Sei sicuro che vuoi eliminare definitivamente ${kind}?</h3>
+    <div class="preview">${esc(n.text)}</div>
+    <div class="m-act"><button class="btn primary" id="mKeep">No, mantieni</button><button class="btn ter danger" id="mPurge">Elimina definitivamente</button></div></div>`;
+  m.hidden = false;
+  m.dataset.id = n.id;
+  setTimeout(() => $("#mKeep").focus(), 20);
+}
+function closeModal() { const m = $("#modal"); m.hidden = true; m.innerHTML = ""; }
 
 /* ---------- navigazione e animazioni ---------- */
 const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -502,7 +574,7 @@ document.addEventListener("mousedown", e => {
 
 /* ---------- chiudere il quaderno cliccando fuori ---------- */
 function hasUnsaved() {
-  if (ui.composer && ui.composer.text.trim()) return true;
+  if (ui.composer && (ui.composer.text.trim() || (ui.composer.images || []).length)) return true;
   const ta = document.querySelector("[data-edit], [data-answer]");
   return !!(ta && ta.value.trim() && ta.value !== ta.defaultValue);
 }
@@ -517,8 +589,84 @@ function closeBook() {
 }
 document.addEventListener("mousedown", e => {
   if (!ui.open) return;
-  if (e.target.closest(".book, .cal, .toast")) return;
+  if (e.target.closest(".book, .cal, .toast, .modal-bg, .lightbox")) return;
   closeBook();
+});
+
+/* ---------- immagini (IndexedDB, separate dai dati) ---------- */
+const IDB = (() => {
+  let dbp;
+  const open = () => dbp || (dbp = new Promise((res, rej) => {
+    const r = indexedDB.open("msj-images", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("img");
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  }));
+  const tx = (mode, fn) => open().then(db => new Promise((res, rej) => {
+    const t = db.transaction("img", mode), req = fn(t.objectStore("img"));
+    t.oncomplete = () => res(req && req.result); t.onerror = () => rej(t.error);
+  }));
+  return { put: (k, v) => tx("readwrite", st => st.put(v, k)), get: k => tx("readonly", st => st.get(k)), del: k => tx("readwrite", st => st.delete(k)).catch(() => {}) };
+})();
+const imgCache = new Map();
+function hydrateImages(root = document) {
+  root.querySelectorAll("img[data-img]:not([src])").forEach(async im => {
+    const id = im.dataset.img;
+    let u = imgCache.get(id);
+    if (!u) { u = await IDB.get(id).catch(() => null); if (u) imgCache.set(id, u); }
+    if (u) im.src = u; else im.closest(".th")?.classList.add("missing");
+  });
+}
+new MutationObserver(() => hydrateImages()).observe(document.body, { childList: true, subtree: true });
+function shrink(file) {
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const im = new Image();
+      im.onload = () => {
+        const k = Math.min(1, 1600 / Math.max(im.width, im.height));
+        const c = document.createElement("canvas"); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
+        const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height);
+        res(c.toDataURL("image/jpeg", 0.85));
+      };
+      im.onerror = rej; im.src = fr.result;
+    };
+    fr.onerror = rej; fr.readAsDataURL(file);
+  });
+}
+async function attachImages(files, target) {
+  const ids = [];
+  for (const f of files) {
+    if (!f.type.startsWith("image/")) continue;
+    try {
+      const u = await shrink(f), id = "i" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      await IDB.put(id, u); imgCache.set(id, u); ids.push(id);
+    } catch (e) { toast("Couldn't read this image"); }
+  }
+  if (!ids.length) return;
+  if (target === "composer" && ui.composer) { ui.composer.images = [...(ui.composer.images || []), ...ids]; render(); }
+  else if (target === "edit" && ui.editing) { ui.editImages = [...ui.editImages, ...ids]; rerenderKeep(); }
+  else ids.forEach(id => IDB.del(id));
+  toast(ids.length > 1 ? `${ids.length} images added` : "Image added 🖼");
+}
+function removeImage(id) {
+  if (ui.composer && (ui.composer.images || []).includes(id)) { ui.composer.images = ui.composer.images.filter(x => x !== id); IDB.del(id); render(); return; }
+  if (ui.editing) { ui.editText = ($("[data-edit]") || {}).value ?? ui.editText; ui.editImages = ui.editImages.filter(x => x !== id); rerenderKeep(); }
+}
+function cancelEditImages() {
+  const n = ui.editing && noteById(ui.editing);
+  if (n) ui.editImages.filter(id => !(n.images || []).includes(id)).forEach(id => IDB.del(id));
+  ui.editImages = []; ui.editText = null;
+}
+function openLightbox(src) { const lb = $("#lightbox"); lb.innerHTML = `<img src="${src}" alt=""><button class="lb-x" title="Close">×</button>`; lb.hidden = false; }
+function closeLightbox() { const lb = $("#lightbox"); lb.hidden = true; lb.innerHTML = ""; }
+document.addEventListener("paste", e => {
+  const t = e.target, target = (t.id === "cText" || t.id === "cAns") ? "composer" : (t.dataset && t.dataset.edit ? "edit" : null);
+  if (!target) return;
+  const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith("image/"));
+  if (!files.length) return;
+  e.preventDefault();
+  if (target === "edit") ui.editText = t.value;
+  attachImages(files, target);
 });
 
 /* ---------- note ---------- */
@@ -529,8 +677,28 @@ function addNote(type, text) {
   return id;
 }
 const noteById = id => D.notes.find(n => n.id === id);
+const liveNotes = () => D.notes.filter(n => !n.deletedAt);
+const trashNotes = () => D.notes.filter(n => n.deletedAt);
+const delDate = n => ymd(new Date(n.deletedAt));
 
 /* ---------- eventi ---------- */
+document.addEventListener("click", e => {
+  if (e.target.closest(".lightbox")) { closeLightbox(); return; }
+  if (e.target.classList && e.target.classList.contains("thumb")) { if (e.target.src) openLightbox(e.target.src); e.stopPropagation(); return; }
+  if (e.target.closest(".modal-bg")) { if (e.target.classList.contains("modal-bg")) closeModal(); return; }
+  const card = e.target.closest("[data-card]");
+  if (card && !e.target.closest("button, textarea, a, .thumbs")) {
+    const id = card.dataset.card, on = ui.selected !== id;
+    document.querySelectorAll(".card.selected").forEach(c => c.classList.remove("selected"));
+    ui.selected = on ? id : null;
+    if (on) card.classList.add("selected");
+    return;
+  }
+  if (!card && ui.selected && !e.target.closest(".trash-btn")) {
+    ui.selected = null;
+    document.querySelectorAll(".card.selected").forEach(c => c.classList.remove("selected"));
+  }
+}, true);
 document.addEventListener("click", e => {
   const el = e.target.closest("button, .tab, #cover, .step-h");
   if (!el) return;
@@ -545,35 +713,53 @@ document.addEventListener("click", e => {
   if (ds.complete) { complete(ds.complete); return; }
   if (ds.continue !== undefined) { if (continueNextDay()) { toast("New day of the plan added ✿"); render(); } return; }
   if (ds.copy) { e.preventDefault(); copyRequest(ds.copy); return; }
-  if (ds.add) { ui.composer = { type: ds.add, text: "", answer: null }; render(); return; }
+  if (ds.add) { ui.composer = { type: ds.add, text: "", answer: null, images: [] }; render(); return; }
   if (ds.tag) { ui.todayTag = ds.tag; render(); return; }
-  if (ds.editBtn) { ui.editing = ds.editBtn; ui.answering = null; rerenderKeep(); focusSoon(`[data-edit="${ds.editBtn}"]`); return; }
+  if (ds.rmimg) { removeImage(ds.rmimg); return; }
+  if (ds.editBtn) { const n0 = noteById(ds.editBtn); ui.editing = ds.editBtn; ui.editText = null; ui.editImages = [...((n0 && n0.images) || [])]; ui.answering = null; rerenderKeep(); focusSoon(`[data-edit="${ds.editBtn}"]`); return; }
   if (ds.answerBtn) { ui.answering = ds.answerBtn; ui.editing = null; rerenderKeep(); focusSoon(`[data-answer="${ds.answerBtn}"]`); return; }
-  if (ds.cancel !== undefined) { ui.editing = null; ui.answering = null; rerenderKeep(); return; }
+  if (ds.cancel !== undefined) { cancelEditImages(); ui.editing = null; ui.answering = null; rerenderKeep(); return; }
   if (ds.saveEdit) {
     const n = noteById(ds.saveEdit), v = $(`[data-edit="${ds.saveEdit}"]`).value.trim();
-    if (n && v) { n.text = v; n.updatedAt = nowIso(); log("edit", n.id); save(); }
-    ui.editing = null; rerenderKeep(); return;
+    if (n && (v || ui.editImages.length)) {
+      (n.images || []).filter(id => !ui.editImages.includes(id)).forEach(id => IDB.del(id));
+      n.text = v; n.images = [...ui.editImages]; n.updatedAt = nowIso(); log("edit", n.id); save();
+    }
+    ui.editing = null; ui.editText = null; ui.editImages = []; rerenderKeep(); return;
   }
   if (ds.saveAnswer) {
     const n = noteById(ds.saveAnswer), v = $(`[data-answer="${ds.saveAnswer}"]`).value.trim();
     if (n) { n.answer = v; n.answeredAt = v ? nowIso() : null; n.updatedAt = nowIso(); log("answer", n.id); save(); }
     ui.answering = null; rerenderKeep(); return;
   }
+  if (ds.trash) {
+    const n = noteById(ds.trash);
+    if (n) { n.deletedAt = nowIso(); log("trash", n.id); save(); ui.selected = null; refreshLists(); toast(n.type === "question" ? "Domanda spostata nel cestino" : "Nota spostata nel cestino"); }
+    return;
+  }
+  if (ds.restore) {
+    const n = noteById(ds.restore);
+    if (n) { delete n.deletedAt; log("restore", n.id); save(); ui.selected = null; refreshLists(); toast("Ripristinata ↩︎"); }
+    return;
+  }
+  if (ds.purge) { const n = noteById(ds.purge); if (n) confirmPurge(n); return; }
   if (ds.goto) { const n = noteById(ds.goto); if (n) go("today", { view: { kind: "date", date: n.date }, dir: -1, count: 3 }); return; }
   switch (el.id) {
     case "openToday": go("today"); break;
     case "allBtn": ui.allTasks = !ui.allTasks; ui.allAnim = ui.allTasks; render(); ui.allAnim = false; break;
-    case "cCancel": ui.composer = null; render(); break;
+    case "cCancel": (ui.composer.images || []).forEach(id => IDB.del(id)); ui.composer = null; render(); break;
+    case "cImg": ui.imgTarget = "composer"; $("#imgFile").click(); break;
+    case "eImg": ui.editText = ($("[data-edit]") || {}).value ?? ui.editText; ui.imgTarget = "edit"; $("#imgFile").click(); break;
     case "cAddAns": ui.composer.answer = ""; render(); setTimeout(() => { const a = $("#cAns"); if (a) a.focus(); }, 20); break;
     case "cSave": {
-      const v = ($("#cText").value || "").trim();
-      if (!v) { toast("Write something first"); return; }
+      const v = ($("#cText").value || "").trim(), imgs = ui.composer.images || [];
+      if (!v && !imgs.length) { toast("Write something first"); return; }
       const type = ui.composer.type, ansEl = $("#cAns"), ans = ansEl ? ansEl.value.trim() : "";
       const nid = addNote(type, v);
+      if (imgs.length) { noteById(nid).images = [...imgs]; save(); }
       if (ans) { const n = noteById(nid); n.answer = ans; n.answeredAt = nowIso(); save(); }
       ui.composer = null;
-      const items = D.notes.filter(n => n.date === today());
+      const items = liveNotes().filter(n => n.date === today());
       const c = noteCounts(items);
       ui.todayTag = c.n && c.q ? "all" : type;
       render(); toast(type === "note" ? "Note saved 📝" : "Question saved ❓"); break;
@@ -601,12 +787,27 @@ document.addEventListener("click", e => {
       break;
     }
     case "nfCal": {
-      const active = new Set(D.notes.map(n => n.date));
+      const active = new Set((ui.section === "trash" ? trashNotes().map(delDate) : liveNotes().map(n => n.date)));
       openCal(el, { active, selected: ui.nf.date, label: "Dark days have notes or questions.",
         onPick: d => { ui.nf.date = d; $("#nfDate").value = toDmy(d); renderNotesHead(); renderNotesLists(); } });
       break;
     }
     case "nfClear": ui.nf.date = null; renderNotesHead(); renderNotesLists(); break;
+    case "tfCal": {
+      const active = new Set(trashNotes().map(delDate));
+      openCal(el, { active, selected: ui.tf.date, label: "Dark days: something was deleted that day.",
+        onPick: d => { ui.tf.date = d; renderTrash($("#left"), $("#right")); } });
+      break;
+    }
+    case "tfClear": ui.tf.date = null; renderTrash($("#left"), $("#right")); break;
+    case "tfQClear": ui.tf.q = ""; $("#tfQ").value = ""; el.hidden = true; renderTrashLists(); break;
+    case "mKeep": closeModal(); break;
+    case "mPurge": {
+      const id = $("#modal").dataset.id, i = D.notes.findIndex(n => n.id === id);
+      if (i > -1) { (D.notes[i].images || []).forEach(x => IDB.del(x)); D.notes.splice(i, 1); log("purge", id); save(); }
+      closeModal(); ui.selected = null; refreshLists(); toast("Eliminata definitivamente");
+      break;
+    }
     case "nfQClear": ui.nf.q = ""; $("#nfQ").value = ""; el.hidden = true; renderNotesLists(); break;
     case "exportBtn": exportData(); break;
     case "importBtn": $("#importFile").click(); break;
@@ -624,10 +825,13 @@ document.addEventListener("change", e => {
   const id = e.target.dataset && e.target.dataset.task;
   if (id) { e.target.checked ? complete(id) : uncomplete(id); return; }
   if (e.target.id === "importFile") importData(e.target.files[0]);
+  if (e.target.id === "imgFile") { const files = [...e.target.files]; e.target.value = ""; attachImages(files, ui.imgTarget); }
 });
 document.addEventListener("input", e => {
   if (e.target.id === "cText" && ui.composer) ui.composer.text = e.target.value;
   if (e.target.id === "cAns" && ui.composer) ui.composer.answer = e.target.value;
+  if (e.target.dataset && e.target.dataset.edit) ui.editText = e.target.value;
+  if (e.target.id === "tfQ") { ui.tf.q = e.target.value; const x = $("#tfQClear"); if (x) x.hidden = !ui.tf.q; renderTrashLists(); }
   if (e.target.id === "nfQ") { ui.nf.q = e.target.value; const x = $("#nfQClear"); if (x) x.hidden = !ui.nf.q; renderNotesLists(); }
 });
 document.addEventListener("keydown", e => {
@@ -638,6 +842,10 @@ document.addEventListener("keydown", e => {
     else if (t.dataset && t.dataset.edit) { e.preventDefault(); $(`[data-save-edit="${t.dataset.edit}"]`).click(); }
     else if (t.dataset && t.dataset.answer) { e.preventDefault(); $(`[data-save-answer="${t.dataset.answer}"]`).click(); }
   }
+  if (e.target.id === "tfDate" && e.key === "Enter") { const s2 = fromDmy(e.target.value); if (s2) { ui.tf.date = s2; renderTrash($("#left"), $("#right")); } else if (!e.target.value.trim()) { ui.tf.date = null; renderTrash($("#left"), $("#right")); } else toast("Use the format dd/mm/yyyy"); }
+  if (e.key === "Escape" && !$("#lightbox").hidden) { closeLightbox(); return; }
+  if (e.key === "Escape" && !$("#modal").hidden) { closeModal(); return; }
+  if (e.key === "Escape" && ui.selected) { ui.selected = null; document.querySelectorAll(".card.selected").forEach(c => c.classList.remove("selected")); }
   if (e.key === "Escape") { if (calEl) closeCal(); else if (ui.composer) { ui.composer = null; render(); } else if (ui.editing || ui.answering) { ui.editing = ui.answering = null; rerenderKeep(); } }
 });
 document.addEventListener("focusout", e => { if (e.target.id === "nfDate") applyTypedFilter(e.target, true); });
@@ -672,15 +880,22 @@ function fallbackCopy(text, cb) {
   const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select();
   try { document.execCommand("copy"); cb(); } catch (e) { toast("Copy failed"); } ta.remove();
 }
-function exportData() {
-  const blob = new Blob([JSON.stringify(D, null, 2)], { type: "application/json" });
+async function exportData() {
+  const images = {};
+  for (const id of D.notes.flatMap(n => n.images || [])) { const u = await IDB.get(id).catch(() => null); if (u) images[id] = u; }
+  const blob = new Blob([JSON.stringify({ ...D, images }, null, 2)], { type: "application/json" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `my-study-journal-${today()}.json`; a.click();
   toast("Backup downloaded");
 }
 function importData(f) {
   if (!f) return;
   f.text().then(t => {
-    try { const x = JSON.parse(t); if (!x.done || !x.entries) throw 0; D = Object.assign(blank(), x); save(); render(); toast("Backup imported"); }
+    try {
+      const x = JSON.parse(t); if (!x.done || !x.entries) throw 0;
+      const images = x.images || {}; delete x.images;
+      Object.entries(images).forEach(([id, u]) => { IDB.put(id, u); imgCache.set(id, u); });
+      D = Object.assign(blank(), x); save(); render(); toast("Backup imported");
+    }
     catch (e) { toast("This file is not a valid backup"); }
   });
 }
