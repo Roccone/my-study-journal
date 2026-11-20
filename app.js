@@ -168,7 +168,7 @@ function rank() {
 const ui = {
   open: false, section: null, view: { kind: "date", date: today() },
   composer: null, todayTag: "all", allTasks: false, editing: null, answering: null,
-  planOpen: new Set(), planScrolled: false, nf: { date: null, q: "" }, scroll: {}, lastSection: null, flipping: false
+  planOpen: new Set(), planScrolled: false, lastCurrent: null, allAnim: false, nf: { date: null, q: "" }, scroll: {}, lastSection: null, flipping: false
 };
 const ORDER = { plan: 0, today: 1, notes: 2 };
 
@@ -258,10 +258,13 @@ function notesPanel(date) {
   const items = D.notes.filter(n => n.date === date).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   let html = `<h2 class="h-title nq-title">Notes and questions</h2>`;
   if (ui.composer) {
-    const q = ui.composer.type === "question";
+    const q = ui.composer.type === "question", withAns = q && ui.composer.answer !== null;
     return html + `<div class="composer"><div class="row"><span class="lab">${q ? "❓ New question" : "📝 New note"}</span><span class="spacer"></span>
-      <button class="btn ter" id="cCancel">Cancel</button><button class="btn primary" id="cSave">Confirm</button></div>
-      <textarea id="cText" placeholder="${q ? "What do you want to ask?" : "Write your note…"}">${esc(ui.composer.text)}</textarea></div>`;
+      <button class="btn ter" id="cCancel">Cancel</button><button class="btn primary" id="cSave">✓ Done</button></div>
+      <div class="qa"><textarea id="cText" placeholder="${q ? "What do you want to ask?" : "Write your note…"}">${esc(ui.composer.text)}</textarea>
+      ${q && !withAns ? `<button class="btn sec add-ans" id="cAddAns">+ Add answer</button>` : ""}
+      ${withAns ? `<div class="ans-line"></div><textarea id="cAns" placeholder="Write the answer…">${esc(ui.composer.answer)}</textarea>` : ""}</div>
+      <div class="hint">Enter to save · Shift+Enter for a new line</div></div>`;
   }
   if (isT) html += `<div class="add-row"><button class="btn" data-add="note">+ 📝</button><button class="btn" data-add="question">+ ❓</button></div>`;
   if (!items.length) return html + (isT ? "" : `<p class="empty">No notes on this day</p>`);
@@ -304,10 +307,9 @@ function renderToday(L, R) {
       <div class="hand" style="font-size:24px">Scaglione ${day.step.n} · ${esc(day.step.title)}</div>
       <div style="color:var(--muted);font-size:12.5px">${esc(day.step.block.title)} — day ${day.di + 1} of ${day.step.days.length}</div>
       <div class="what">${esc(day.step.what)}</div></div><p class="empty">Notes are written on the day ✎</p>` : `<p class="empty">The plan ends here</p>`);
-    R.innerHTML = day ? `<div class="date-hand pencil">Day ${g + 1} of the plan<small>planned · not started</small></div>
+    R.innerHTML = day ? dayNav() + `<div class="date-hand pencil">Day ${g + 1} of the plan<small>planned · not started</small></div>
       <div class="tod-title"><h2 class="h-title">Tasks of the day</h2></div>
-      <div class="scroll" style="flex:1">${day.tasks.map(id => taskRow(id, { disabled: true })).join("")}</div>
-      <div class="right-foot"><button class="btn ter" id="nextTasks" ${g + 1 >= DAYS.length ? "disabled" : ""}>next tasks →</button></div>` : "";
+      <div class="scroll" style="flex:1">${day.tasks.map(id => taskRow(id, { disabled: true })).join("")}</div>` : "";
     return;
   }
 
@@ -315,7 +317,7 @@ function renderToday(L, R) {
   const e = D.entries[v.date];
   const tasks = isTodayView ? todayTasks() : (e ? e.tasks : []);
   const done = tasks.filter(isDone).length;
-  const head = `<div class="date-hand ${e ? "" : "pencil"}">${fmtLong(v.date)}${!e && isTodayView ? "<small>not started yet · tick something to begin</small>" : ""}</div>
+  const head = dayNav() + `<div class="date-hand ${e ? "active" : "pencil"}">${fmtLong(v.date)}${!e && isTodayView ? "<small>not started yet · tick something to begin</small>" : ""}</div>
     <div class="tod-title"><h2 class="h-title">Tasks of the day</h2><span class="spacer"></span>${tasks.length ? `<button class="btn ter eye" id="allBtn">👁 ${ui.allTasks ? "hide tasks" : "all tasks"}</button>` : ""}</div>
     <div class="progress"><i style="width:${tasks.length ? done / tasks.length * 100 : 0}%"></i></div>
     <div class="meta"><span>${done} / ${tasks.length} done</span><span></span></div>`;
@@ -325,9 +327,10 @@ function renderToday(L, R) {
     body += `<div class="step-list">${tasks.filter(isDone).map(id => taskRow(id)).join("")}</div>`;
     if (cur) {
       const c = TASK[cur];
-      body += `<div class="current-task"><div style="font-size:11.5px;color:var(--muted);margin-bottom:6px">Scaglione ${c.day.step.n} · ${esc(c.day.step.title)}</div>
+      const anim = ui.lastCurrent !== cur; ui.lastCurrent = cur;
+      body += `<div class="current-task ${anim ? "anim" : ""}"><div style="font-size:11.5px;color:var(--muted);margin-bottom:6px">Scaglione ${c.day.step.n} · ${esc(c.day.step.title)}</div>
         <div class="row" style="align-items:flex-start"><input type="checkbox" class="chk" data-task="${cur}"><div class="t">${pill(c.type)}${esc(c.text)}</div></div>
-        <div class="act">${c.type === "C" ? `<button class="btn" data-copy="${c.day.step.n}">📋 copia richiesta</button>` : ""}<button class="btn primary" data-complete="${cur}">Completato ✓</button></div></div>`;
+        <div class="act">${c.type === "C" ? `<button class="btn" data-copy="${c.day.step.n}">📋 copia richiesta</button>` : ""}<button class="btn primary" data-complete="${cur}">✓ Done</button></div></div>`;
     } else if (tasks.length) {
       const more = nextPlanDay() < DAYS.length;
       body += `<div class="celebrate"><div class="big">Day complete! お疲れ様 🎉</div>
@@ -336,10 +339,15 @@ function renderToday(L, R) {
   } else {
     body += e ? tasks.map(id => taskRow(id)).join("") : `<p class="empty">Nothing written on this day</p>`;
   }
-  if (ui.allTasks && tasks.length) body += `<div class="all-panel"><h4>All tasks of the day</h4>${tasks.map(id => taskRow(id)).join("")}</div>`;
-  const nextDisabled = !isTodayView ? false : futureG(1) >= DAYS.length;
-  R.innerHTML = head + `<div class="scroll" data-keep="todayR" style="flex:1">${body}</div>
-    <div class="right-foot"><button class="btn ter" id="nextTasks" ${nextDisabled ? "disabled" : ""}>next tasks →</button></div>`;
+  if (ui.allTasks && tasks.length) body += `<div class="all-panel ${ui.allAnim ? "anim" : ""}"><h4>All tasks of the day</h4>${tasks.map(id => taskRow(id)).join("")}</div>`;
+  R.innerHTML = head + `<div class="scroll" data-keep="todayR" style="flex:1">${body}</div>`;
+}
+
+function dayNav() {
+  const v = ui.view;
+  const prevOff = v.kind === "date" && !entryDates().some(d => d < v.date);
+  const nextOff = v.kind === "future" ? futureG(v.k) + 1 >= DAYS.length : (v.date === today() && futureG(1) >= DAYS.length);
+  return `<div class="day-nav"><button class="btn ter" id="dayPrev" ${prevOff ? "disabled" : ""}>← previous</button><span>·</span><button class="btn ter" id="dayNext" ${nextOff ? "disabled" : ""}>next tasks →</button></div>`;
 }
 
 /* --- Notes --- */
@@ -537,7 +545,7 @@ document.addEventListener("click", e => {
   if (ds.complete) { complete(ds.complete); return; }
   if (ds.continue !== undefined) { if (continueNextDay()) { toast("New day of the plan added ✿"); render(); } return; }
   if (ds.copy) { e.preventDefault(); copyRequest(ds.copy); return; }
-  if (ds.add) { ui.composer = { type: ds.add, text: "" }; render(); return; }
+  if (ds.add) { ui.composer = { type: ds.add, text: "", answer: null }; render(); return; }
   if (ds.tag) { ui.todayTag = ds.tag; render(); return; }
   if (ds.editBtn) { ui.editing = ds.editBtn; ui.answering = null; rerenderKeep(); focusSoon(`[data-edit="${ds.editBtn}"]`); return; }
   if (ds.answerBtn) { ui.answering = ds.answerBtn; ui.editing = null; rerenderKeep(); focusSoon(`[data-answer="${ds.answerBtn}"]`); return; }
@@ -555,23 +563,29 @@ document.addEventListener("click", e => {
   if (ds.goto) { const n = noteById(ds.goto); if (n) go("today", { view: { kind: "date", date: n.date }, dir: -1, count: 3 }); return; }
   switch (el.id) {
     case "openToday": go("today"); break;
-    case "allBtn": ui.allTasks = !ui.allTasks; render(); break;
+    case "allBtn": ui.allTasks = !ui.allTasks; ui.allAnim = ui.allTasks; render(); ui.allAnim = false; break;
     case "cCancel": ui.composer = null; render(); break;
+    case "cAddAns": ui.composer.answer = ""; render(); setTimeout(() => { const a = $("#cAns"); if (a) a.focus(); }, 20); break;
     case "cSave": {
       const v = ($("#cText").value || "").trim();
       if (!v) { toast("Write something first"); return; }
-      const type = ui.composer.type; addNote(type, v); ui.composer = null;
+      const type = ui.composer.type, ansEl = $("#cAns"), ans = ansEl ? ansEl.value.trim() : "";
+      const nid = addNote(type, v);
+      if (ans) { const n = noteById(nid); n.answer = ans; n.answeredAt = nowIso(); save(); }
+      ui.composer = null;
       const items = D.notes.filter(n => n.date === today());
       const c = noteCounts(items);
       ui.todayTag = c.n && c.q ? "all" : type;
       render(); toast(type === "note" ? "Note saved 📝" : "Question saved ❓"); break;
     }
+    case "dayPrev":
     case "prevDay": {
       const v = ui.view;
       if (v.kind === "future") goView(v.k > 1 ? { kind: "future", k: v.k - 1 } : { kind: "date", date: today() });
       else { const prev = entryDates().filter(d => d < v.date).pop(); if (prev) goView({ kind: "date", date: prev }); }
       break;
     }
+    case "dayNext":
     case "nextTasks": {
       const v = ui.view;
       if (v.kind === "future") goView({ kind: "future", k: v.k + 1 });
@@ -613,11 +627,17 @@ document.addEventListener("change", e => {
 });
 document.addEventListener("input", e => {
   if (e.target.id === "cText" && ui.composer) ui.composer.text = e.target.value;
+  if (e.target.id === "cAns" && ui.composer) ui.composer.answer = e.target.value;
   if (e.target.id === "nfQ") { ui.nf.q = e.target.value; const x = $("#nfQClear"); if (x) x.hidden = !ui.nf.q; renderNotesLists(); }
 });
 document.addEventListener("keydown", e => {
   if (e.target.id === "nfDate" && e.key === "Enter") applyTypedFilter(e.target);
-  if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && e.target.id === "cText") $("#cSave").click();
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    const t = e.target;
+    if (t.id === "cText" || t.id === "cAns") { e.preventDefault(); $("#cSave").click(); }
+    else if (t.dataset && t.dataset.edit) { e.preventDefault(); $(`[data-save-edit="${t.dataset.edit}"]`).click(); }
+    else if (t.dataset && t.dataset.answer) { e.preventDefault(); $(`[data-save-answer="${t.dataset.answer}"]`).click(); }
+  }
   if (e.key === "Escape") { if (calEl) closeCal(); else if (ui.composer) { ui.composer = null; render(); } else if (ui.editing || ui.answering) { ui.editing = ui.answering = null; rerenderKeep(); } }
 });
 document.addEventListener("focusout", e => { if (e.target.id === "nfDate") applyTypedFilter(e.target, true); });
