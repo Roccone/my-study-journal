@@ -1,13 +1,15 @@
 {
+  "id": "/my-study-journal/",
   "name": "My Study Journal",
   "short_name": "Study Journal",
   "description": "Bullet study plan: il mio piano di studio di vibe coding, giorno per giorno.",
-  "start_url": "./",
+  "start_url": "/my-study-journal/",
+  "scope": "/my-study-journal/",
   "display": "standalone",
   "background_color": "#4e3424",
   "theme_color": "#1f2f4f",
   "icons": [
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "icon-1024.png", "sizes": "1024x1024", "type": "image/png" }
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-1024.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any" }
   ]
 }

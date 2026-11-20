@@ -4,15 +4,13 @@ Un bullet journal digitale per seguire, giorno per giorno, il mio piano di studi
 
 **App:** https://roccone.github.io/my-study-journal/
 
-## Installare l'icona sul Mac
+## Installare l'app sul Mac
 
-Apri il Terminale e incolla:
+1. Apri https://roccone.github.io/my-study-journal/ in Brave.
+2. Clicca l'icona di installazione nella barra degli indirizzi, oppure menu → *Save and Share* → *Install My Study Journal…*.
+3. L'app compare nel Dock con la sua icona: tasto destro → *Options* → *Keep in Dock*.
 
-```bash
-curl -fsSL https://roccone.github.io/my-study-journal/install.sh | bash
-```
-
-Lo script crea l'app "My Study Journal" in `~/Applications` e apre il Finder con l'app selezionata. Trascinala nel Dock: un clic apre il quaderno in una finestra di Brave senza barre.
+(Lo script `install.sh` è la vecchia versione: apre una finestra nuova a ogni clic, meglio la web app.)
 
 ## Come è fatta
 
