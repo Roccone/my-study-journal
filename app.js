@@ -54,7 +54,9 @@ save();
 
 /* ---------- piano ---------- */
 const TYPES = { L: "Lezione", P: "Progetto", E: "Esercizio", C: "Controllo", R: "Diario" };
-const XP = { L: 10, P: 30, E: 15, C: 10, R: 5, bonus: 50 };
+const XP = { R: 5, L: 10, C: 10, E: 20, P: 30, bonus: 50 };
+const pts = id => { const t = TASK[id]; return !t ? 0 : (t.day.step.final ? 50 : (XP[t.type] || 10)); };
+const sessionPts = d => Object.entries(D.done).filter(([, x]) => x.date === d).reduce((a, [id]) => a + pts(id), 0);
 const DAYS = [], TASK = {}, STEPS = [];
 let order = 0;
 window.PLAN.forEach(b => b.steps.forEach(s => {
@@ -148,7 +150,7 @@ function currentG() {
 function xpNow() {
   let xp = 0, max = 0;
   STEPS.forEach(s => {
-    stepTasks(s).forEach(id => { const v = XP[TASK[id].type] || 10; max += v; if (isDone(id)) xp += v; });
+    stepTasks(s).forEach(id => { const v = pts(id); max += v; if (isDone(id)) xp += v; });
     max += XP.bonus; if (stepComplete(s)) xp += XP.bonus;
   });
   return { xp, max };
@@ -168,6 +170,7 @@ function rank() {
 const ui = {
   open: false, section: null, view: { kind: "date", date: today() },
   composer: null, todayTag: "all", allTasks: false, editing: null, answering: null,
+  page: { plan: "home", today: "home", notes: "home" }, cameFrom: {}, editingHome: null,
   planOpen: new Set(), planScrolled: false, lastCurrent: null, allAnim: false, selected: null, editText: null, editImages: [], imgTarget: null, lastRange: null, tf: { date: null, q: "" }, nf: { date: null, q: "" }, scroll: {}, lastSection: null, flipping: false
 };
 const ORDER = { plan: 0, today: 1, notes: 2, trash: 3 };
@@ -185,7 +188,10 @@ function render() {
   const L = $("#left"), R = $("#right");
   L.className = "pin"; R.className = "pin";
   $("#spreadHead").classList.remove("show");
-  if (ui.section === "plan") renderPlan(L, R);
+  const onHome = ui.section !== "trash" && ui.page[ui.section] === "home";
+  renderSideTab(onHome);
+  if (onHome) renderHome(L, R);
+  else if (ui.section === "plan") renderPlan(L, R);
   else if (ui.section === "today") renderToday(L, R);
   else if (ui.section === "trash") renderTrash(L, R);
   else renderNotes(L, R);
@@ -230,6 +236,7 @@ function renderPlan(L, R) {
   }).join("");
   L.innerHTML = `<div class="scroll" data-keep="plan" id="planScroll" style="flex:1">
     <div class="plan-head">
+      <div style="margin:-6px 0 8px -6px">${homeBtn("plan")}</div>
       <div class="rank-row"><div class="seal">${r.k}</div><div><b>${r.jp} · ${r.it}</b><div class="xp">${r.xp} / ${r.max} XP</div></div></div>
       <div class="progress"><i style="width:${pct}%"></i></div>
       <div class="meta"><span>${Math.round(pct)}% done</span><span>${r.next ? `next rank: ${r.next.jp} at ${r.next.at} XP` : "highest rank!"}</span></div>
@@ -348,9 +355,7 @@ function cardHtml(n, o = {}) {
 }
 function renderToday(L, R) {
   const v = ui.view, t = today(), isTodayView = v.kind === "date" && v.date === t;
-  const prevDisabled = v.kind === "date" && !entryDates().some(d => d < v.date);
-  const nav = `<div class="nav-row"><button class="btn ter" id="prevDay" ${prevDisabled ? "disabled" : ""}>← previous session</button>
-    <button class="btn sec" id="goTo">Other sessions <span class="chev-d">⌄</span></button>${isTodayView ? "" : `<button class="btn ter" id="goToday">Go Today</button>`}</div>`;
+  const nav = `<div class="nav-row">${homeBtn("today")}</div>`;
 
   if (v.kind === "future") {
     const g = futureG(v.k), day = DAYS[g];
@@ -395,16 +400,104 @@ function renderToday(L, R) {
 }
 
 function dayNav() {
-  const v = ui.view;
-  const nextOff = v.kind === "future" ? futureG(v.k) + 1 >= DAYS.length : (v.date === today() && futureG(1) >= DAYS.length);
-  return `<div class="day-nav"><button class="btn ter" id="dayNext" ${nextOff ? "disabled" : ""}>next session →</button></div>`;
+  const v = ui.view, isT = v.kind === "date" && v.date === today();
+  const prevOff = v.kind === "date" && !entryDates().some(d => d < v.date);
+  const nextOff = v.kind === "future" ? futureG(v.k) + 1 >= DAYS.length : (isT && futureG(1) >= DAYS.length);
+  return `<div class="day-nav"><button class="btn sec" id="goTo">All sessions <span class="chev-d">⌄</span></button><span class="gap"></span>
+    <button class="btn sec" id="dayPrev" ${prevOff ? "disabled" : ""}>← Previous session</button><button class="btn sec" id="dayNext" ${nextOff ? "disabled" : ""}>Next session →</button>${isT ? "" : `<button class="btn sec" id="goToday">Go today</button>`}</div>`;
 }
+function homeBtn(section) {
+  const name = { plan: "Full plan", today: "Daily tasks", notes: "Notes and questions" }[section];
+  return `<button class="btn ter home-btn" data-home="${section}">📒 ${name} home</button>`;
+}
+function renderSideTab(onHome) {
+  const lt = $("#leftTabs");
+  document.querySelectorAll(".tabs .tab").forEach(b => b.classList.remove("moved"));
+  if (!ui.open || onHome || ui.section === "trash") { lt.innerHTML = ""; return; }
+  const orig = $(`.tabs:not(.tabs-left) .tab[data-s="${ui.section}"]`);
+  if (!orig) { lt.innerHTML = ""; return; }
+  orig.classList.add("moved");
+  const top = orig.offsetTop;
+  lt.innerHTML = `<button class="tab ${ui.section} active left" data-s="${ui.section}" style="margin-top:${top}px">${orig.innerHTML}</button>`;
+}
+
+/* --- Homepage delle sezioni --- */
+const HOME = {
+  plan: { title: "The plan to master vibe coding", btn: "The plan", back: "Back to the plan",
+    def: "Fourteen short steps from zero to building real apps. Each one ends with something small and useful, plus a few exercises to do without AI. Then the kanji app, as a real product." },
+  today: { title: "Daily tasks" },
+  notes: { title: "Notes and questions", btn: "Check notes and questions", back: "Back to notes and questions",
+    def: "Everything that comes to mind while studying: notes to remember and questions to answer later, with links and screenshots." }
+};
+function homeDesc(s) {
+  const txt = (D.home && D.home[s]) ?? HOME[s].def;
+  if (ui.editingHome === s) return `<div class="home-desc editing"><textarea id="homeEdit">${esc(txt)}</textarea>
+    <div class="edit-act"><button class="btn ter" id="homeCancel">Cancel</button><button class="btn primary" id="homeSave">✓ Save</button></div></div>`;
+  return `<div class="home-desc"><p>${esc(txt)}</p><button class="home-pen" id="homePen" title="Edit description">✍🏻</button></div>`;
+}
+function renderHome(L, R) {
+  const s = ui.section, h = HOME[s], c = ui.cameFrom[s];
+  L.innerHTML = "";
+  let body = "", label;
+  if (s === "today") {
+    const { xp, max } = xpNow(), pct = Math.round(xp / max * 100);
+    const nextId = todayTasks().find(id => !isDone(id)), nt = nextId && TASK[nextId];
+    body = `<div class="home-dash">
+      <div class="meta"><span>Total progress</span><span>${pct}%</span></div>
+      <div class="progress"><i style="width:${xp / max * 100}%"></i></div>
+      <div class="chart-wrap"><div class="chart-scroll" id="chartScroll">${handChart()}</div></div>
+      <div class="next-lab">Next task</div>
+      ${nt ? `<div class="next-card">${pill(nt.type)}${esc(nt.text)}<div class="next-ctx">Scaglione ${nt.day.step.n} · ${esc(nt.day.step.title)}</div></div>` : `<div class="next-card done">All done for today. お疲れ様!</div>`}
+    </div>`;
+    if (c && c.view) {
+      const v = c.view;
+      label = v.kind === "future" ? `Back to day ${futureG(v.k) + 1} of the plan →` : (v.date === today() ? "Back to today's session →" : `Back to session · ${relDay(v.date)} →`);
+    } else label = "Next session →";
+  } else {
+    body = homeDesc(s);
+    label = (c ? h.back : h.btn) + " →";
+  }
+  R.innerHTML = `<div class="home"><h2 class="home-title">${h.title}</h2>${body}<div class="home-foot"><button class="btn ter home-go" id="homeGo">${label}</button></div></div>`;
+  const sc = $("#chartScroll"); if (sc) sc.scrollLeft = sc.scrollWidth;
+}
+function handChart() {
+  const t = today(), days = entryDates().filter(d => d < t);
+  const vals = days.map(sessionPts), planned = todayTasks().reduce((a, id) => a + pts(id), 0), doneToday = sessionPts(t);
+  const step = 64, padL = 26, H = 150, top = 26, bottom = 118;
+  const maxV = Math.max(40, planned, doneToday, ...vals);
+  const Y = v => bottom - (v / maxV) * (bottom - top);
+  const xs = days.map((_, i) => padL + i * step), xT = padL + days.length * step + (days.length ? 18 : 0);
+  const W = Math.max(xT + 60, 420);
+  const wob = (i, k) => Math.sin(i * 12.9898 + k * 78.233) * 2.2;
+  let path = "";
+  xs.forEach((x, i) => {
+    const y = Y(vals[i]);
+    if (!i) { path += `M${x} ${y}`; return; }
+    const px = xs[i - 1], py = Y(vals[i - 1]);
+    path += ` C${px + step * .35} ${py + wob(i, 1)}, ${x - step * .35} ${y + wob(i, 2)}, ${x} ${y}`;
+  });
+  const lab = d => { const r = relDay(d); return r === "Yesterday" ? "yest." : r; };
+  let g = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" class="hand-chart">`;
+  g += `<line x1="8" y1="${bottom + 2}" x2="${W - 8}" y2="${bottom + 4}" class="hc-axis"/>`;
+  if (path) g += `<path d="${path}" class="hc-line"/><path d="${path}" class="hc-line hc-line2" transform="translate(.8 .9)"/>`;
+  xs.forEach((x, i) => {
+    g += `<circle cx="${x}" cy="${Y(vals[i])}" r="4.2" class="hc-dot"/><text x="${x}" y="${Y(vals[i]) - 9}" class="hc-val">${vals[i]}</text><text x="${x}" y="${H - 10}" class="hc-date">${lab(days[i])}</text>`;
+  });
+  const yT = Y(planned);
+  if (xs.length) g += `<path d="M${xs[xs.length - 1]} ${Y(vals[vals.length - 1])} L${xT} ${yT}" class="hc-dash"/>`;
+  g += `<rect x="${xT - 24}" y="${top - 18}" width="48" height="${bottom - top + 22}" rx="10" class="hc-today-bg"/>`;
+  if (doneToday) g += `<circle cx="${xT}" cy="${Y(doneToday)}" r="4.2" class="hc-dot"/><text x="${xT - 8}" y="${Y(doneToday) + 4}" class="hc-val" text-anchor="end">${doneToday}</text>`;
+  g += `<circle cx="${xT}" cy="${yT}" r="5.2" class="hc-plan"/><text x="${xT}" y="${yT - 10}" class="hc-val hc-pv">${planned}</text><text x="${xT}" y="${H - 10}" class="hc-date hc-pv">today</text>`;
+  return g + `</svg><div class="hc-legend"><span class="lg-a"></span>points per session <span class="lg-b"></span>planned today</div>`;
+}
+
+/* --- Notes --- */
 
 /* --- Notes --- */
 function renderNotes(L, R) {
   const sh = $("#spreadHead");
   sh.classList.add("show");
-  sh.innerHTML = `<h2 class="h-title">Notes and questions</h2>
+  sh.innerHTML = `<div class="sh-home">${homeBtn("notes")}</div><h2 class="h-title">Notes and questions</h2>
     <div class="filters"><div class="date-filter"><input id="nfDate" placeholder="dd/mm/yyyy" value="${ui.nf.date ? toDmy(ui.nf.date) : ""}">
       ${ui.nf.date ? `<button class="clear-x" id="nfClear" title="Clear date">✕</button>` : ""}<button class="icon-btn" id="nfCal" style="width:28px;height:28px" title="Pick a date">📅</button></div>
       <div class="search">🔍<input id="nfQ" placeholder="Search notes and questions" value="${esc(ui.nf.q)}"><button class="clear-x" id="nfQClear" title="Clear search" ${ui.nf.q ? "" : "hidden"}>✕</button></div></div>`;
@@ -509,11 +602,13 @@ function flip(dir, count, mid) {
 }
 function go(section, opts = {}) {
   if (ui.flipping) return;
+  const page = section === "trash" ? "content" : (opts.page || "home");
+  const wasHere = ui.section === section && ui.page[section] === "content";
   const apply = () => {
-    if (section !== ui.section) { ui.composer = null; ui.editing = null; ui.answering = null; ui.allTasks = false; }
-    if (section === "plan" && ui.section !== "plan") ui.planScrolled = false;
-    if (section === "today" && !opts.view && ui.section !== "today") ui.view = { kind: "date", date: today() };
+    if (section !== ui.section || page !== ui.page[section]) { ui.composer = null; ui.editing = null; ui.answering = null; ui.allTasks = false; ui.editingHome = null; }
+    if (section === "plan" && page === "content" && !wasHere) ui.planScrolled = !!opts.keepScroll;
     if (opts.view) { ui.view = opts.view; ui.composer = null; ui.allTasks = false; }
+    if (section !== "trash") ui.page[section] = page;
     ui.section = section;
     render();
   };
@@ -523,19 +618,31 @@ function go(section, opts = {}) {
     apply();
     return;
   }
-  if (section === ui.section && !opts.view) {
-    if (section === "today" && !(ui.view.kind === "date" && ui.view.date === today())) { go("today", { view: { kind: "date", date: today() }, dir: 1 }); }
-    return;
-  }
-  const dir = opts.dir || (ORDER[section] >= ORDER[ui.section] ? 1 : -1);
+  if (section === ui.section && (section === "trash" || page === ui.page[section]) && !opts.view) return;
+  let dir = opts.dir;
+  if (!dir) dir = section === ui.section ? (page === "content" ? 1 : -1) : (ORDER[section] >= ORDER[ui.section] ? 1 : -1);
   flip(dir, opts.count || 1, apply);
+}
+function snapshot(section) {
+  if (section === "today") return { view: { ...ui.view } };
+  return { yes: true };
+}
+function goHome(section) {
+  ui.cameFrom[section] = (ui.section === section && ui.page[section] === "content") ? snapshot(section) : null;
+  go(section);
+}
+function leaveHome() {
+  const s = ui.section, c = ui.cameFrom[s];
+  ui.cameFrom[s] = null;
+  if (s === "today") go("today", { page: "content", view: c ? c.view : { kind: "date", date: today() }, dir: 1 });
+  else go(s, { page: "content", keepScroll: !!c, dir: 1 });
 }
 function viewKey(v) { return v.kind === "future" ? "9999-" + pad(v.k) : v.date; }
 function goView(view) {
   const cur = viewKey(ui.view), nxt = viewKey(view);
   const dates = entryDates();
   const span = Math.abs(dates.filter(d => (d > cur && d <= nxt) || (d < cur && d >= nxt)).length) || 1;
-  go("today", { view, dir: nxt > cur ? 1 : -1, count: Math.min(span, 4) });
+  go("today", { page: "content", view, dir: nxt > cur ? 1 : -1, count: Math.min(span, 4) });
 }
 
 /* ---------- calendario ---------- */
@@ -610,6 +717,7 @@ document.addEventListener("mousedown", e => {
 
 /* ---------- chiudere il quaderno cliccando fuori ---------- */
 function hasUnsaved() {
+  const he = document.querySelector("#homeEdit"); if (he && he.value.trim() !== ((D.home && D.home[ui.section]) ?? HOME[ui.section].def)) return true;
   if (ui.composer && ui.composer.text.trim()) return true;
   const ed = document.querySelector("[data-edit]"), ta = document.querySelector("[data-answer]");
   if (ed && ui.editing && val(ed) !== editSource(noteById(ui.editing))) return true;
@@ -619,7 +727,7 @@ function closeBook() {
   if (!ui.open || ui.flipping) return;
   if (hasUnsaved()) { toast("Hai un testo non salvato: confermalo o annullalo prima di chiudere"); return; }
   closeCal();
-  ui.open = false; ui.section = null; ui.lastSection = null;
+  ui.open = false; ui.section = null; ui.lastSection = null; ui.cameFrom = {};
   ui.composer = null; ui.editing = null; ui.answering = null; ui.allTasks = false;
   const b = $("#book"); b.classList.remove("open"); b.classList.add("closed");
   render();
@@ -801,7 +909,8 @@ document.addEventListener("click", e => {
   const el = e.target.closest("button, .tab, #cover, .step-h");
   if (!el) return;
   if (el.id === "cover") { go("today"); return; }
-  if (el.classList.contains("tab")) { go(el.dataset.s); return; }
+  if (el.classList.contains("tab")) { const t = el.dataset.s; t === "trash" ? go("trash") : goHome(t); return; }
+  if (el.dataset.home) { goHome(el.dataset.home); return; }
   if (el.classList.contains("step-h")) {
     const n = el.dataset.step;
     ui.planOpen.has(n) ? ui.planOpen.delete(n) : ui.planOpen.add(n);
@@ -842,9 +951,13 @@ document.addEventListener("click", e => {
     return;
   }
   if (ds.purge) { const n = noteById(ds.purge); if (n) confirmPurge(n); return; }
-  if (ds.goto) { const n = noteById(ds.goto); if (n) go("today", { view: { kind: "date", date: n.date }, dir: -1, count: 3 }); return; }
+  if (ds.goto) { const n = noteById(ds.goto); if (n) go("today", { page: "content", view: { kind: "date", date: n.date }, dir: -1, count: 3 }); return; }
   switch (el.id) {
-    case "openToday": go("today"); break;
+    case "openToday": go("today", { page: "content", view: { kind: "date", date: today() } }); break;
+    case "homeGo": leaveHome(); break;
+    case "homePen": ui.editingHome = ui.section; render(); setTimeout(() => { const t = $("#homeEdit"); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 20); break;
+    case "homeCancel": ui.editingHome = null; render(); break;
+    case "homeSave": { const v = $("#homeEdit").value.trim(); D.home = D.home || {}; D.home[ui.section] = v || HOME[ui.section].def; log("edit-home", ui.section); save(); ui.editingHome = null; render(); break; }
     case "allBtn": ui.allTasks = !ui.allTasks; ui.allAnim = ui.allTasks; render(); ui.allAnim = false; break;
     case "cCancel": imgIds(val($("#cText"))).forEach(id => IDB.del(id)); ui.composer = null; render(); break;
     case "cImg": ui.imgTarget = "composer"; $("#imgFile").click(); break;
@@ -933,6 +1046,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
     const t = e.target.closest ? (e.target.closest(".editor") || e.target) : e.target;
     if (t.id === "cText" || t.id === "cAns") { e.preventDefault(); $("#cSave").click(); }
+    else if (t.id === "homeEdit") { e.preventDefault(); $("#homeSave").click(); }
     else if (t.dataset && t.dataset.edit) { e.preventDefault(); $(`[data-save-edit="${t.dataset.edit}"]`).click(); }
     else if (t.dataset && t.dataset.answer) { e.preventDefault(); $(`[data-save-answer="${t.dataset.answer}"]`).click(); }
   }
@@ -959,7 +1073,7 @@ function complete(id) {
   render();
   if (after !== before) { toast(`🎉 New rank: ${after}!`); confetti(170); }
   else if (!wasComplete && stepComplete(step)) { toast(`✨ Scaglione ${step.n} complete! +${XP.bonus} XP`); confetti(120); }
-  else toast(`+${XP[TASK[id].type] || 10} XP`);
+  else toast(`+${pts(id)} XP`);
 }
 function uncomplete(id) { setDone(id, false); render(); }
 
