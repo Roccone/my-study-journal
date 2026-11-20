@@ -12,7 +12,7 @@ Apri il Terminale e incolla:
 curl -fsSL https://roccone.github.io/my-study-journal/install.sh | bash
 ```
 
-Lo script crea l'app "My Study Journal" in `~/Applications` e un collegamento sulla Scrivania. Trascinalo nel Dock: un clic apre il quaderno in una finestra di Brave senza barre.
+Lo script crea l'app "My Study Journal" in `~/Applications` e apre il Finder con l'app selezionata. Trascinala nel Dock: un clic apre il quaderno in una finestra di Brave senza barre.
 
 ## Come è fatta
 

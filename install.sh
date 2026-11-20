@@ -1,7 +1,7 @@
 #!/bin/bash
 # My Study Journal — installer per macOS.
-# Crea l'app "My Study Journal" in ~/Applications con la sua icona,
-# e un collegamento sulla Scrivania da trascinare nel Dock.
+# Crea l'app "My Study Journal" in ~/Applications con la sua icona
+# e apre il Finder su quella cartella, così la trascini nel Dock.
 # L'app apre il quaderno in una finestra di Brave senza barre (modalità app).
 set -e
 
@@ -59,10 +59,11 @@ done
 iconutil -c icns "$TMP/AppIcon.iconset" -o "$APP_DIR/Contents/Resources/AppIcon.icns"
 touch "$APP_DIR"
 
-# 4. Collegamento sulla Scrivania
-ln -sfn "$APP_DIR" "$HOME/Desktop/$APP_NAME"
+# 4. Tolgo il vecchio collegamento sulla Scrivania (il Dock non lo accetta)
+[ -L "$HOME/Desktop/$APP_NAME" ] && rm "$HOME/Desktop/$APP_NAME"
 
 rm -rf "$TMP"
-echo "✓ Fatto! Trovi \"$APP_NAME\" sulla Scrivania e in ~/Applications."
-echo "  Trascinalo nel Dock e cliccalo per aprire il quaderno."
+echo "✓ Fatto! Si apre il Finder con \"$APP_NAME\" selezionata:"
+echo "  trascinala nel Dock e cliccala per aprire il quaderno."
+open -R "$APP_DIR"
 open "$APP_DIR"
