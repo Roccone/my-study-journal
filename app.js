@@ -492,6 +492,27 @@ document.addEventListener("mousedown", e => {
   if (calEl && !calEl.contains(e.target) && e.target !== calAnchor && !(calAnchor && calAnchor.contains(e.target))) closeCal();
 });
 
+/* ---------- chiudere il quaderno cliccando fuori ---------- */
+function hasUnsaved() {
+  if (ui.composer && ui.composer.text.trim()) return true;
+  const ta = document.querySelector("[data-edit], [data-answer]");
+  return !!(ta && ta.value.trim() && ta.value !== ta.defaultValue);
+}
+function closeBook() {
+  if (!ui.open || ui.flipping) return;
+  if (hasUnsaved()) { toast("Hai un testo non salvato: confermalo o annullalo prima di chiudere"); return; }
+  closeCal();
+  ui.open = false; ui.section = null; ui.lastSection = null;
+  ui.composer = null; ui.editing = null; ui.answering = null; ui.allTasks = false;
+  const b = $("#book"); b.classList.remove("open"); b.classList.add("closed");
+  render();
+}
+document.addEventListener("mousedown", e => {
+  if (!ui.open) return;
+  if (e.target.closest(".book, .cal, .toast")) return;
+  closeBook();
+});
+
 /* ---------- note ---------- */
 function addNote(type, text) {
   const d = new Date(), id = "n" + d.getTime().toString(36) + Math.random().toString(36).slice(2, 6);
