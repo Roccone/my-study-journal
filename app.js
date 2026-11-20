@@ -170,7 +170,7 @@ function rank() {
 const ui = {
   open: false, section: null, view: { kind: "date", date: today() },
   composer: null, todayTag: "all", allTasks: false, editing: null, answering: null,
-  page: { plan: "home", today: "home", notes: "home" }, cameFrom: {}, editingHome: null,
+  page: { plan: "home", today: "home", notes: "home" }, cameFrom: {}, editingHome: null, planSpread: 0, pp: null, pendingBlock: null,
   planOpen: new Set(), planScrolled: false, lastCurrent: null, allAnim: false, selected: null, editText: null, editImages: [], imgTarget: null, lastRange: null, tf: { date: null, q: "" }, nf: { date: null, q: "" }, scroll: {}, lastSection: null, flipping: false
 };
 const ORDER = { plan: 0, today: 1, notes: 2, trash: 3 };
@@ -210,56 +210,83 @@ function taskRow(id, o = {}) {
 }
 
 /* --- Full plan --- */
-function renderPlan(L, R) {
-  const r = rank(), pct = r.xp / r.max * 100, cg = currentG(), curStep = DAYS[cg] ? DAYS[cg].step : null;
-  if (!ui.planScrolled && curStep) ui.planOpen.add(String(curStep.n));
-  let body = "";
-  window.PLAN.forEach(b => {
-    body += `<div class="block-h"><h3>${esc(b.title)} <small style="color:var(--muted);font-weight:600">· ${esc(b.weeks)}</small></h3><p>${esc(b.desc)}</p></div>`;
-    b.steps.forEach(s => {
-      const tasks = stepTasks(s), done = tasks.filter(isDone).length, complete = done === tasks.length;
-      const open = ui.planOpen.has(String(s.n));
-      let days = "";
-      if (open) s.dayIdx.forEach((g, i) => {
-        days += `<div class="day-h ${g === cg ? "now" : ""}">Day ${i + 1}${g === cg ? " · you are here ✎" : ""}</div>` + DAYS[g].tasks.map(id => taskRow(id)).join("");
-      });
-      body += `<div class="step ${open ? "open" : ""} ${complete ? "complete" : ""} ${s === curStep ? "current" : ""}" data-stepbox="${s.n}">
-        <div class="step-h" data-step="${s.n}"><div class="num">${complete ? "✓" : s.n}</div>
-          <div><div class="tt">${s.final ? "" : "Scaglione " + s.n + " · "}${esc(s.title)}</div><div class="wk">${esc(s.weeks)} · ${s.days.length} days</div></div>
-          <div class="cnt">${done}/${tasks.length}<div class="mini"><i style="width:${done / tasks.length * 100}%"></i></div></div><div class="chev">▶</div></div>
-        <div class="step-b"><div class="what">${esc(s.what)}</div>${days}</div></div>`;
-    });
-  });
-  const badges = Object.entries(BADGES).map(([id, lab]) => {
-    const b = window.PLAN.find(x => x.id === id);
-    return `<span class="badge ${b.steps.every(stepComplete) ? "on" : ""}">${lab}</span>`;
-  }).join("");
-  L.innerHTML = `<div class="scroll" data-keep="plan" id="planScroll" style="flex:1">
-    <div class="plan-head">
-      <div style="margin:-6px 0 8px -6px">${homeBtn("plan")}</div>
-      <div class="rank-row"><div class="seal">${r.k}</div><div><b>${r.jp} · ${r.it}</b><div class="xp">${r.xp} / ${r.max} XP</div></div></div>
-      <div class="progress"><i style="width:${pct}%"></i></div>
-      <div class="meta"><span>${Math.round(pct)}% done</span><span>${r.next ? `next rank: ${r.next.jp} at ${r.next.at} XP` : "highest rank!"}</span></div>
-      <div class="badges">${badges}</div>
-    </div>
-    ${body}
-    <div class="plan-foot"><button class="btn" id="exportBtn">Export backup</button><button class="btn" id="importBtn">Import backup</button><button class="btn" id="resetBtn">Reset</button></div>
-  </div><input type="file" id="importFile" accept="application/json" hidden>`;
-
-  const tt = todayTasks(), day = DAYS[cg];
-  R.innerHTML = `<h2 class="h-title">To do next</h2>
-    <div style="color:var(--muted);font-size:13px;margin:4px 0 12px">${day ? `Scaglione ${day.step.n} · ${esc(day.step.title)} — day ${day.di + 1} of ${day.step.days.length}` : "Plan completed 🎉"}</div>
-    <div class="scroll" data-keep="planR" style="flex:1">${tt.length ? tt.map(id => taskRow(id, { ctx: TASK[id].day.g !== cg })).join("") : `<p class="empty">Nothing left to do. お疲れ様!</p>`}</div>
-    <div class="right-foot"><button class="btn ter" id="openToday">Open today's page →</button></div>`;
-
-  if (!ui.planScrolled) {
-    ui.planScrolled = true;
-    requestAnimationFrame(() => {
-      const sc = $("#planScroll"), box = curStep && $(`[data-stepbox="${curStep.n}"]`), head = $(".plan-head");
-      if (sc && box) sc.scrollTop = box.offsetTop - head.offsetHeight - 14;
-    });
-  }
+/* --- Full plan a pagine --- */
+const BLOCK_TABS = { A: "Weeks 1–7", B: "Weeks 8–15", C: "Weeks 16–22", D: "Weeks 23–24", F: "Final" };
+function planItems() {
+  const items = [];
+  window.PLAN.forEach(b => b.steps.forEach((s, si) => {
+    items.push({ type: "step", step: s, block: si === 0 ? b : null });
+    s.dayIdx.forEach(g => items.push({ type: "day", g }));
+  }));
+  return items;
 }
+function itemHtml(it, cg) {
+  if (it.type === "step") {
+    const s = it.step, tasks = stepTasks(s), done = tasks.filter(isDone).length;
+    return (it.block ? `<div class="pp-block"><div class="pp-block-t">${esc(it.block.title)}</div><div class="pp-block-d">${esc(it.block.weeks)} · ${esc(it.block.desc)}</div></div>` : "") +
+      `<div class="pp-step"><div class="num ${done === tasks.length ? "ok" : ""}">${done === tasks.length ? "✓" : s.n}</div><div><div class="pp-step-t">${s.final ? "" : "Scaglione " + s.n + " · "}${esc(s.title)}</div>
+      <div class="pp-step-w">${esc(s.weeks)} · ${s.days.length} days · ${done}/${tasks.length} done</div></div></div><div class="what">${esc(s.what)}</div>`;
+  }
+  if (it.type === "cont") return `<div class="pp-cont">${it.step.final ? "" : "Scaglione " + it.step.n + " · "}${esc(it.step.title)} (continued)</div>`;
+  const d = DAYS[it.g], now = it.g === cg;
+  return `<div class="pp-day" data-g="${it.g}"><div class="day-h ${now ? "now" : ""}">Day ${d.di + 1}${now ? " · next session ✎" : ""}</div>${d.tasks.map(id => taskRow(id)).join("")}</div>`;
+}
+function paginate(body) {
+  const W = body.clientWidth, H = body.clientHeight, key = W + "x" + H;
+  if (ui.pp && ui.pp.key === key) return ui.pp;
+  const m = document.createElement("div");
+  m.style.cssText = `position:absolute;visibility:hidden;left:0;top:0;width:${W}px`;
+  body.appendChild(m);
+  const hOf = html => { m.innerHTML = html; return m.offsetHeight; };
+  const pages = [];
+  let cur = null, used = 0;
+  const newPage = () => { cur = []; pages.push(cur); used = 0; };
+  planItems().forEach(it => {
+    if (it.type === "step") { newPage(); cur.push(it); used += hOf(itemHtml(it, -1)); cur.step = it.step; return; }
+    const h = hOf(itemHtml(it, -1)) + 6;
+    if (used + h > H && cur.length) {
+      const st = cur.step; newPage(); cur.step = st;
+      const c = { type: "cont", step: st }; cur.push(c); used += hOf(itemHtml(c, -1));
+    }
+    cur.push(it); used += h;
+  });
+  m.remove();
+  const daySpread = {}, blockSpread = {}, blockPage = {};
+  pages.forEach((pg, i) => pg.forEach(it => {
+    if (it.type === "day" && daySpread[it.g] == null) daySpread[it.g] = Math.floor(i / 2);
+    if (it.type === "step" && it.block && blockSpread[it.block.id] == null) { blockSpread[it.block.id] = Math.floor(i / 2); blockPage[it.block.id] = i; }
+  }));
+  ui.pp = { key, pages, daySpread, blockSpread, blockPage, spreads: Math.ceil(pages.length / 2) };
+  return ui.pp;
+}
+function renderPlan(L, R) {
+  const r = rank(), pct = r.xp / r.max * 100, cg = currentG();
+  L.innerHTML = `<div class="pp-top">${homeBtn("plan")}<div class="progress pp-prog"><i style="width:${pct}%"></i></div><span class="pp-pct">${Math.round(pct)}%</span></div>
+    <div class="pp-body" id="ppL"></div><button class="pp-arrow left" id="ppPrev" title="Previous page">‹</button>`;
+  R.innerHTML = `<div class="pp-top right"><button class="btn sec" id="ppToday">Today's tasks →</button></div>
+    <div class="pp-body" id="ppR"></div><button class="pp-arrow right" id="ppNext" title="Next page">›</button>`;
+  const pp = paginate($("#ppL"));
+  if (ui.pendingBlock) { ui.planSpread = pp.blockSpread[ui.pendingBlock] ?? 0; ui.pendingBlock = null; ui.planScrolled = true; }
+  if (!ui.planScrolled) { ui.planSpread = pp.daySpread[cg] ?? 0; ui.planScrolled = true; }
+  ui.planSpread = Math.max(0, Math.min(ui.planSpread || 0, pp.spreads - 1));
+  const s = ui.planSpread, fill = (el, pg) => { el.innerHTML = pg ? pg.map(it => itemHtml(it, cg)).join("") : `<p class="empty">お疲れ様 — the end of the plan</p>`; };
+  fill($("#ppL"), pp.pages[s * 2]); fill($("#ppR"), pp.pages[s * 2 + 1]);
+  $("#ppPrev").disabled = s === 0; $("#ppNext").disabled = s >= pp.spreads - 1;
+  renderSideTab(false);
+}
+function planFlipTo(target) {
+  const pp = ui.pp; if (!pp) return;
+  target = Math.max(0, Math.min(target, pp.spreads - 1));
+  if (target === ui.planSpread) return;
+  const diff = target - ui.planSpread;
+  flip(diff > 0 ? 1 : -1, Math.min(Math.abs(diff), 6), () => { ui.planSpread = target; render(); });
+}
+function openBlock(id) {
+  if (ui.section === "plan" && ui.page.plan === "content" && ui.pp) { planFlipTo(ui.pp.blockSpread[id] ?? 0); return; }
+  ui.pendingBlock = id;
+  go("plan", { page: "content", keepScroll: true });
+}
+window.addEventListener("resize", () => { clearTimeout(window.__rz); window.__rz = setTimeout(() => { ui.pp = null; if (ui.open) render(); }, 150); });
 
 /* --- Today --- */
 function noteCounts(list) { return { n: list.some(x => x.type === "note"), q: list.some(x => x.type === "question") }; }
@@ -337,9 +364,9 @@ function cardHtml(n, o = {}) {
   const ic = `<div class="ic">${isQ ? "❓" : "📝"}</div>`;
   const sel = ui.selected === n.id ? "selected" : "";
   if (o.trash) {
-    return `<div class="card ${isQ ? "q" : ""} ${sel}" data-card="${n.id}">${ic}<div class="body">${isQ ? `<div class="qtext">${richText(n.text, n)}</div>` : `<div class="txt">${richText(n.text, n)}</div>`}${isQ && n.answer ? `<div class="ans"><div class="atext">${linkify(n.answer)}</div></div>` : ""}
+    return `<div class="card trash-card ${isQ ? "q" : ""} ${sel}" data-card="${n.id}">${ic}<div class="body">${isQ ? `<div class="qtext">${richText(n.text, n)}</div>` : `<div class="txt">${richText(n.text, n)}</div>`}${isQ && n.answer ? `<div class="ans"><div class="atext">${linkify(n.answer)}</div></div>` : ""}
       <div class="when">written ${relDay(n.date).toLowerCase()} · deleted at ${fmtTime(n.deletedAt)}</div></div>
-      <div class="tools wide"><button class="btn sec" data-restore="${n.id}">↩︎ Ripristina</button><button class="btn ter danger" data-purge="${n.id}">Elimina</button></div></div>`;
+      <div class="tools wide"><button class="btn sec" data-restore="${n.id}">Ripristina</button><button class="btn ter danger" data-purge="${n.id}">Elimina</button></div></div>`;
   }
   if (ui.editing === n.id) {
     return `<div class="card ${isQ ? "q" : ""}">${ic}<div class="body"><div class="editor" contenteditable="true" data-edit="${n.id}">${toEditorHtml(ui.editText ?? editSource(n))}</div>
@@ -353,8 +380,45 @@ function cardHtml(n, o = {}) {
   const tools = `<div class="tools"><button title="Edit" data-edit-btn="${n.id}">✍🏻</button>${isQ ? `<button title="Answer" data-answer-btn="${n.id}">❗️</button>` : ""}${o.goto ? `<button title="Open the journal page" data-goto="${n.id}">📖</button>` : ""}</div>`;
   return `<div class="card ${isQ ? "q" : ""} ${sel}" data-card="${n.id}">${ic}<div class="body">${isQ ? `<div class="qtext">${richText(n.text, n)}</div>` : `<div class="txt">${richText(n.text, n)}</div>`}${ans}<div class="when">${fmtTime(n.createdAt)}${n.updatedAt !== n.createdAt ? " · edited" : ""}</div></div>${tools}<button class="trash-btn" data-trash="${n.id}" title="Move to trash">🗑</button></div>`;
 }
+function stepByN(n) { return STEPS.find(x => String(x.n) === String(n)); }
+const weekOf = g => Math.floor(g / 5) + 1;
+function viewStep() {
+  const v = ui.view;
+  if (v.kind === "future") { const d = DAYS[futureG(v.k)]; return d && d.step; }
+  const e = D.entries[v.date], tasks = v.date === today() ? todayTasks() : (e ? e.tasks : []);
+  const first = tasks.find(id => !isDone(id)) || tasks[0];
+  return first ? TASK[first].day.step : (e && DAYS[e.planDays[0]] ? DAYS[e.planDays[0]].step : null);
+}
+function viewG() {
+  const v = ui.view;
+  if (v.kind === "future") return futureG(v.k);
+  const e = D.entries[v.date], tasks = v.date === today() ? todayTasks() : (e ? e.tasks : []);
+  const first = tasks.find(id => !isDone(id)) || tasks[0];
+  return first ? TASK[first].day.g : (e ? e.planDays[0] : 0);
+}
+function renderIntro(L, R) {
+  const v = ui.view, st = stepByN(v.n); if (!st) return;
+  const tasks = stepTasks(st), ex = tasks.filter(id => TASK[id].type === "E").length;
+  const projects = tasks.filter(id => TASK[id].type === "P").map(id => TASK[id].text);
+  const g0 = st.dayIdx[0], g1 = st.dayIdx[st.dayIdx.length - 1], w0 = weekOf(g0), w1 = weekOf(g1);
+  L.innerHTML = `<div class="nav-row">${homeBtn("today")}</div>
+    <div class="intro-left"><div class="intro-num">${st.final ? st.n : st.n}</div>
+    <div class="intro-sub">${st.final ? "Final project" : `Scaglione ${st.n} of 14`} · ${w0 === w1 ? "week " + w0 : `weeks ${w0}–${w1}`} · ${st.days.length} ${st.days.length === 1 ? "day" : "days"}</div>
+    <div class="intro-block">${esc(st.block.title)}</div></div>`;
+  R.innerHTML = `<div class="home intro"><h2 class="home-title">${esc(st.title)}</h2>
+    <div class="intro-lab">What you'll learn</div><p class="intro-p">${esc(st.what)}</p>
+    ${projects.length ? `<div class="intro-lab">Mini-project</div><ul class="intro-ul">${projects.slice(0, 4).map(t => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
+    ${ex ? `<div class="intro-lab">Exercises without AI</div><p class="intro-p">${ex} exercises, then Claude checks them.</p>` : ""}
+    <div class="home-foot"><button class="btn sec home-go" id="introGo">${v.auto ? "Start the first session →" : "Back to the session →"}</button></div></div>`;
+}
 function renderToday(L, R) {
-  const v = ui.view, t = today(), isTodayView = v.kind === "date" && v.date === t;
+  let v = ui.view; const t = today();
+  if (v.kind === "intro") { renderIntro(L, R); return; }
+  if (v.kind === "date" && v.date === t) {
+    const cur = todayTasks().find(id => !isDone(id)), d = cur && TASK[cur].day;
+    if (d && d.di === 0 && !(D.introSeen || {})[d.step.n]) { ui.view = { kind: "intro", n: d.step.n, back: { kind: "date", date: t }, auto: true }; renderIntro(L, R); return; }
+  }
+  const isTodayView = v.kind === "date" && v.date === t;
   const nav = `<div class="nav-row">${homeBtn("today")}</div>`;
 
   if (v.kind === "future") {
@@ -363,7 +427,7 @@ function renderToday(L, R) {
       <div class="hand" style="font-size:24px">Scaglione ${day.step.n} · ${esc(day.step.title)}</div>
       <div style="color:var(--muted);font-size:12.5px">${esc(day.step.block.title)} — day ${day.di + 1} of ${day.step.days.length}</div>
       <div class="what">${esc(day.step.what)}</div></div><p class="empty">Notes are written on the day ✎</p>` : `<p class="empty">The plan ends here</p>`);
-    R.innerHTML = day ? dayNav() + `<div class="date-hand pencil">Day ${g + 1} of the plan<small>planned · not started</small></div>
+    R.innerHTML = day ? dayNav() + dateRow(`Week ${weekOf(g)} · day ${g + 1} of the plan`, "pencil", "planned · not started") + `
       <div class="tod-title"><h2 class="h-title">Tasks of the day</h2></div>
       <div class="scroll" style="flex:1">${day.tasks.map(id => taskRow(id, { disabled: true })).join("")}</div>` : "";
     return;
@@ -373,7 +437,8 @@ function renderToday(L, R) {
   const e = D.entries[v.date];
   const tasks = isTodayView ? todayTasks() : (e ? e.tasks : []);
   const done = tasks.filter(isDone).length;
-  const head = dayNav() + `<div class="date-hand ${e ? "active" : "pencil"}">${fmtLong(v.date)}${!e && isTodayView ? "<small>not started yet · tick something to begin</small>" : ""}</div>
+  const short = parseYmd(v.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" });
+  const head = dayNav() + dateRow(`Week ${weekOf(viewG())} · ${short}`, e ? "active" : "pencil", !e && isTodayView ? "not started yet · tick something to begin" : "") + `
     <div class="tod-title"><h2 class="h-title">Tasks of the day</h2><span class="spacer"></span>${tasks.length ? `<button class="btn ter eye" id="allBtn">👁 ${ui.allTasks ? "hide tasks" : "all tasks"}</button>` : ""}</div>
     <div class="progress"><i style="width:${tasks.length ? done / tasks.length * 100 : 0}%"></i></div>
     <div class="meta"><span>${done} / ${tasks.length} done</span><span></span></div>`;
@@ -413,12 +478,23 @@ function homeBtn(section) {
 function renderSideTab(onHome) {
   const lt = $("#leftTabs");
   document.querySelectorAll(".tabs .tab").forEach(b => b.classList.remove("moved"));
+  document.querySelectorAll(".tab.sub").forEach(b => b.classList.toggle("lit", ui.open && ui.section === "plan"));
   if (!ui.open || onHome || ui.section === "trash") { lt.innerHTML = ""; return; }
-  const orig = $(`.tabs:not(.tabs-left) .tab[data-s="${ui.section}"]`);
-  if (!orig) { lt.innerHTML = ""; return; }
-  orig.classList.add("moved");
-  const top = orig.offsetTop;
-  lt.innerHTML = `<button class="tab ${ui.section} active left" data-s="${ui.section}" style="margin-top:${top}px">${orig.innerHTML}</button>`;
+  const moving = [$(`.tabs:not(.tabs-left) .tab[data-s="${ui.section}"]`)];
+  if (ui.section === "plan" && ui.pp) document.querySelectorAll(".tabs:not(.tabs-left) .tab.sub").forEach(b => {
+    if ((ui.pp.blockPage[b.dataset.block] ?? 1e9) <= ui.planSpread * 2) moving.push(b);
+  });
+  lt.innerHTML = moving.filter(Boolean).map(o => {
+    o.classList.add("moved");
+    const isSub = o.classList.contains("sub");
+    return `<button class="tab ${isSub ? "sub lit" : ui.section + " active"} left" ${isSub ? `data-block="${o.dataset.block}"` : `data-s="${ui.section}"`} style="top:${o.offsetTop}px">${o.innerHTML}</button>`;
+  }).join("");
+}
+
+function dateRow(text, cls, small) {
+  const st = viewStep();
+  return `<div class="date-row">${st ? `<button class="btn sec" id="sectionGoal" data-n="${st.n}">🎯 Section goal</button>` : ""}<span class="spacer"></span>
+    <div class="date-hand ${cls}">${text}${small ? `<small>${small}</small>` : ""}</div></div>`;
 }
 
 /* --- Homepage delle sezioni --- */
@@ -454,7 +530,7 @@ function renderHome(L, R) {
       label = v.kind === "future" ? `Back to day ${futureG(v.k) + 1} of the plan →` : (v.date === today() ? "Back to today's session →" : `Back to session · ${relDay(v.date)} →`);
     } else label = "Next session →";
   } else {
-    body = homeDesc(s);
+    body = homeDesc(s) + (s === "plan" ? `<div class="home-backup">Backup: <button class="btn ter" id="exportBtn">Export</button>·<button class="btn ter" id="importBtn">Import</button>·<button class="btn ter" id="resetBtn">Reset</button><input type="file" id="importFile" accept="application/json" hidden></div>` : "");
     label = (c ? h.back : h.btn) + " →";
   }
   R.innerHTML = `<div class="home"><h2 class="home-title">${h.title}</h2>${body}<div class="home-foot"><button class="btn ter home-go" id="homeGo">${label}</button></div></div>`;
@@ -585,16 +661,18 @@ const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 function flip(dir, count, mid) {
   if (reduced) { mid(); return; }
   ui.flipping = true;
-  const leaf = $("#leaf"), n = Math.max(1, Math.min(count || 1, 5)), dur = n > 1 ? 280 : 620;
+  const leaf = $("#leaf"), n = Math.max(1, Math.min(count || 1, 6)), dur = n > 1 ? 340 : 900;
   let i = 0;
   const one = () => {
     leaf.className = "leaf " + (dir > 0 ? "fwd" : "back");
     leaf.style.display = "block";
+    const sg = dir > 0 ? -1 : 1, far = dir > 0 ? "0 46% 46% 0 / 0 14% 14% 0" : "46% 0 0 46% / 14% 0 0 14%", flat = dir > 0 ? "0 10px 10px 0" : "10px 0 0 10px";
     const a = leaf.animate([
-      { transform: "rotateY(0deg)", filter: "brightness(1)" },
-      { transform: `rotateY(${dir > 0 ? -90 : 90}deg)`, filter: "brightness(.85)" },
-      { transform: `rotateY(${dir > 0 ? -180 : 180}deg)`, filter: "brightness(1)" }
-    ], { duration: dur, easing: "cubic-bezier(.45,.05,.35,1)" });
+      { transform: "rotateY(0deg) skewY(0deg)", borderRadius: flat, filter: "brightness(1)", boxShadow: "0 0 0 rgba(0,0,0,0)" },
+      { offset: .3, transform: `rotateY(${sg * 52}deg) skewY(${sg * 2.5}deg) scaleX(.97)`, borderRadius: far, filter: "brightness(.96)", boxShadow: `${-sg * 18}px 10px 30px rgba(0,0,0,.25)` },
+      { offset: .55, transform: `rotateY(${sg * 100}deg) skewY(${sg * 1.5}deg) scaleX(.95)`, borderRadius: far, filter: "brightness(.86)", boxShadow: `${sg * 14}px 10px 26px rgba(0,0,0,.22)` },
+      { transform: `rotateY(${sg * 180}deg) skewY(0deg)`, borderRadius: flat, filter: "brightness(1)", boxShadow: "0 0 0 rgba(0,0,0,0)" }
+    ], { duration: dur, easing: "cubic-bezier(.42,.0,.25,1)" });
     if (i === n - 1) setTimeout(mid, dur * 0.5);
     a.onfinish = () => { i++; if (i < n) one(); else { leaf.style.display = "none"; ui.flipping = false; } };
   };
@@ -909,7 +987,7 @@ document.addEventListener("click", e => {
   const el = e.target.closest("button, .tab, #cover, .step-h");
   if (!el) return;
   if (el.id === "cover") { go("today"); return; }
-  if (el.classList.contains("tab")) { const t = el.dataset.s; t === "trash" ? go("trash") : goHome(t); return; }
+  if (el.classList.contains("tab")) { if (el.dataset.block) { openBlock(el.dataset.block); return; } const t = el.dataset.s; t === "trash" ? go("trash") : goHome(t); return; }
   if (el.dataset.home) { goHome(el.dataset.home); return; }
   if (el.classList.contains("step-h")) {
     const n = el.dataset.step;
@@ -955,6 +1033,20 @@ document.addEventListener("click", e => {
   switch (el.id) {
     case "openToday": go("today", { page: "content", view: { kind: "date", date: today() } }); break;
     case "homeGo": leaveHome(); break;
+    case "ppPrev": planFlipTo(ui.planSpread - 1); break;
+    case "ppNext": planFlipTo(ui.planSpread + 1); break;
+    case "ppToday": planFlipTo(ui.pp ? (ui.pp.daySpread[currentG()] ?? 0) : 0); break;
+    case "introGo": {
+      const v = ui.view;
+      if (v.auto) { D.introSeen = D.introSeen || {}; D.introSeen[v.n] = nowIso(); log("intro-seen", v.n); save(); }
+      go("today", { page: "content", view: v.back || { kind: "date", date: today() }, dir: 1 });
+      break;
+    }
+    case "sectionGoal": {
+      const n = el.dataset.n;
+      go("today", { page: "content", view: { kind: "intro", n, back: { ...ui.view } }, dir: -1 });
+      break;
+    }
     case "homePen": ui.editingHome = ui.section; render(); setTimeout(() => { const t = $("#homeEdit"); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 20); break;
     case "homeCancel": ui.editingHome = null; render(); break;
     case "homeSave": { const v = $("#homeEdit").value.trim(); D.home = D.home || {}; D.home[ui.section] = v || HOME[ui.section].def; log("edit-home", ui.section); save(); ui.editingHome = null; render(); break; }
