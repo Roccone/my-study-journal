@@ -349,8 +349,8 @@ function cardHtml(n, o = {}) {
 function renderToday(L, R) {
   const v = ui.view, t = today(), isTodayView = v.kind === "date" && v.date === t;
   const prevDisabled = v.kind === "date" && !entryDates().some(d => d < v.date);
-  const nav = `<div class="nav-row"><button class="icon-btn" id="prevDay" title="Previous page" ${prevDisabled ? "disabled" : ""}>←</button>
-    <button class="btn" id="goTo">📅 Go to…</button>${isTodayView ? "" : `<button class="btn" id="goToday">Go Today</button>`}</div>`;
+  const nav = `<div class="nav-row"><button class="btn ter" id="prevDay" ${prevDisabled ? "disabled" : ""}>← previous session</button>
+    <button class="btn sec" id="goTo">Other sessions <span class="chev-d">⌄</span></button>${isTodayView ? "" : `<button class="btn ter" id="goToday">Go Today</button>`}</div>`;
 
   if (v.kind === "future") {
     const g = futureG(v.k), day = DAYS[g];
@@ -396,9 +396,8 @@ function renderToday(L, R) {
 
 function dayNav() {
   const v = ui.view;
-  const prevOff = v.kind === "date" && !entryDates().some(d => d < v.date);
   const nextOff = v.kind === "future" ? futureG(v.k) + 1 >= DAYS.length : (v.date === today() && futureG(1) >= DAYS.length);
-  return `<div class="day-nav"><button class="btn ter" id="dayPrev" ${prevOff ? "disabled" : ""}>← previous</button><span>·</span><button class="btn ter" id="dayNext" ${nextOff ? "disabled" : ""}>next tasks →</button></div>`;
+  return `<div class="day-nav"><button class="btn ter" id="dayNext" ${nextOff ? "disabled" : ""}>next session →</button></div>`;
 }
 
 /* --- Notes --- */
@@ -737,6 +736,37 @@ document.addEventListener("paste", e => {
   if (text) document.execCommand("insertText", false, text);
 });
 
+/* ---------- menu "Other sessions" ---------- */
+function openSessions(anchor) {
+  if (calEl && calAnchor === anchor) { closeCal(); return; }
+  closeCal();
+  calAnchor = anchor;
+  const t = today(), cur = ui.view.kind === "date" ? ui.view.date : null;
+  const days = [...new Set([t, ...entryDates()])].sort().reverse();
+  let html = "", lastMonth = null;
+  days.forEach(d => {
+    const dt = parseYmd(d), month = dt.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+    if (month !== lastMonth) { html += `<div class="sm-sep"><span>${month}</span></div>`; lastMonth = month; }
+    const e = D.entries[d];
+    html += `<button class="sm-row ${d === cur ? "cur" : ""} ${e ? "" : "noentry"}" data-sess="${d}">
+      ${d === t ? `<span class="sm-tag">today</span>` : ""}<span class="sm-date">${dt.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}</span></button>`;
+  });
+  calEl = document.createElement("div");
+  calEl.className = "sess-menu";
+  calEl.innerHTML = `<div class="sm-list">${html}</div>`;
+  const stage = $(".stage").getBoundingClientRect(), r = anchor.getBoundingClientRect();
+  calEl.style.top = (r.bottom - stage.top + 6) + "px";
+  calEl.style.left = (r.left - stage.left) + "px";
+  calEl.addEventListener("click", e => {
+    e.stopPropagation();
+    const b = e.target.closest("[data-sess]"); if (!b) return;
+    const d = b.dataset.sess; closeCal();
+    if (d !== cur) goView({ kind: "date", date: d });
+  });
+  $(".stage").appendChild(calEl);
+  const c = calEl.querySelector(".sm-row.cur"); if (c) c.scrollIntoView({ block: "nearest" });
+}
+
 /* ---------- note ---------- */
 function addNote(type, text) {
   const d = new Date(), id = "n" + d.getTime().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -849,12 +879,7 @@ document.addEventListener("click", e => {
       break;
     }
     case "goToday": goView({ kind: "date", date: today() }); break;
-    case "goTo": {
-      const active = new Set([...entryDates(), today()]);
-      openCal(el, { active, selected: ui.view.kind === "date" ? ui.view.date : today(), label: "Dark days have a journal page; grey days are empty.",
-        onPick: d => goView({ kind: "date", date: d }) });
-      break;
-    }
+    case "goTo": openSessions(el); break;
     case "nfCal": {
       const active = new Set((ui.section === "trash" ? trashNotes().map(delDate) : liveNotes().map(n => n.date)));
       openCal(el, { active, selected: ui.nf.date, label: "Dark days have notes or questions.",
