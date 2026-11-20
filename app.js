@@ -168,7 +168,7 @@ function rank() {
 const ui = {
   open: false, section: null, view: { kind: "date", date: today() },
   composer: null, todayTag: "all", allTasks: false, editing: null, answering: null,
-  planOpen: new Set(), planScrolled: false, lastCurrent: null, allAnim: false, selected: null, editText: null, editImages: [], imgTarget: null, tf: { date: null, q: "" }, nf: { date: null, q: "" }, scroll: {}, lastSection: null, flipping: false
+  planOpen: new Set(), planScrolled: false, lastCurrent: null, allAnim: false, selected: null, editText: null, editImages: [], imgTarget: null, lastRange: null, tf: { date: null, q: "" }, nf: { date: null, q: "" }, scroll: {}, lastSection: null, flipping: false
 };
 const ORDER = { plan: 0, today: 1, notes: 2, trash: 3 };
 
@@ -191,7 +191,7 @@ function render() {
   else renderNotes(L, R);
   if (same) document.querySelectorAll("[data-keep]").forEach(el => { if (ui.scroll[el.dataset.keep] != null) el.scrollTop = ui.scroll[el.dataset.keep]; });
   ui.lastSection = ui.section;
-  const ta = $("#cText"); if (ta && document.activeElement !== ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+  const ta = $("#cText"); if (ta && document.activeElement !== ta) caretEnd(ta);
 }
 
 function pill(type) { return `<span class="pill ${type}">${TYPES[type] || ""}</span>`; }
@@ -264,10 +264,9 @@ function notesPanel(date) {
     const q = ui.composer.type === "question", withAns = q && ui.composer.answer !== null;
     return html + `<div class="composer"><div class="row"><span class="lab">${q ? "❓ New question" : "📝 New note"}</span><span class="spacer"></span>
       <button class="btn sec" id="cImg" title="Add image (or paste one)">🖼</button><button class="btn ter" id="cCancel">Cancel</button><button class="btn primary" id="cSave">✓ Done</button></div>
-      <div class="qa"><textarea id="cText" placeholder="${q ? "What do you want to ask?" : "Write your note…"}">${esc(ui.composer.text)}</textarea>
+      <div class="qa"><div class="editor" contenteditable="true" id="cText" data-ph="${q ? "What do you want to ask?" : "Write your note…"}">${toEditorHtml(ui.composer.text)}</div>
       ${q && !withAns ? `<button class="btn sec add-ans" id="cAddAns">+ Add answer</button>` : ""}
       ${withAns ? `<div class="ans-line"></div><textarea id="cAns" placeholder="Write the answer…">${esc(ui.composer.answer)}</textarea>` : ""}</div>
-      ${thumbs(ui.composer.images, true)}
       <div class="hint">Enter to save · Shift+Enter for a new line · paste or 🖼 to add images · links become clickable</div></div>`;
   }
   if (isT) html += `<div class="add-row"><button class="btn" data-add="note">+ 📝</button><button class="btn" data-add="question">+ ❓</button></div>`;
@@ -291,6 +290,37 @@ function linkify(t) {
     return `<a href="${href}" target="_blank" rel="noopener noreferrer">${url}</a>${trail}`;
   });
 }
+const IMG_RE = /(\[\[img:[a-z0-9]+\]\])/i, IMG_ONE = /^\[\[img:([a-z0-9]+)\]\]$/i;
+const imgIds = t => [...String(t || "").matchAll(/\[\[img:([a-z0-9]+)\]\]/gi)].map(m => m[1]);
+const plain = t => String(t || "").replace(/\[\[img:[a-z0-9]+\]\]/gi, "🖼").replace(/\n{3,}/g, "\n\n").trim();
+const tightImgs = t => String(t || "").replace(/\n+(\[\[img:[a-z0-9]+\]\])/gi, "\n$1").replace(/(\[\[img:[a-z0-9]+\]\])\n+/gi, "$1\n");
+function richText(t, n) {
+  const html = tightImgs(t).split(IMG_RE).map(p => { const m = p.match(IMG_ONE); return m ? `<span class="th inl-view"><img class="thumb" data-img="${m[1]}" alt=""></span>` : linkify(p); }).join("");
+  const legacy = n ? (n.images || []).filter(id => !imgIds(t).includes(id)) : [];
+  return html + thumbs(legacy);
+}
+function editorImg(id) { return `<span class="th inl" contenteditable="false"><img class="thumb" data-img="${id}" alt=""><button class="th-x" data-rmimg="${id}" title="Remove image">×</button></span>`; }
+function toEditorHtml(t) {
+  return String(t || "").split(IMG_RE).map(p => { const m = p.match(IMG_ONE); return m ? editorImg(m[1]) : esc(p).replace(/\n/g, "<br>"); }).join("");
+}
+function serialize(el) {
+  let out = "";
+  const walk = node => node.childNodes.forEach(c => {
+    if (c.nodeType === 3) out += c.nodeValue;
+    else if (c.nodeName === "BR") out += "\n";
+    else if (c.classList && c.classList.contains("th")) { const im = c.querySelector("img"); if (im) out += `\n[[img:${im.dataset.img}]]\n`; }
+    else { if (/^(DIV|P)$/.test(c.nodeName) && out && !out.endsWith("\n")) out += "\n"; walk(c); }
+  });
+  walk(el);
+  return tightImgs(out).replace(/[\u00a0]/g, " ").replace(/\u200b/g, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+const val = el => !el ? "" : (el.isContentEditable ? serialize(el) : el.value);
+function caretEnd(el) {
+  el.focus();
+  if (!el.isContentEditable) { el.setSelectionRange(el.value.length, el.value.length); return; }
+  const r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); ui.lastRange = r.cloneRange();
+}
 function thumbs(ids, editable) {
   if (!ids || !ids.length) return "";
   return `<div class="thumbs">${ids.map(id => `<span class="th"><img class="thumb" data-img="${id}" alt="">${editable ? `<button class="th-x" data-rmimg="${id}" title="Remove image">×</button>` : ""}</span>`).join("")}</div>`;
@@ -300,12 +330,12 @@ function cardHtml(n, o = {}) {
   const ic = `<div class="ic">${isQ ? "❓" : "📝"}</div>`;
   const sel = ui.selected === n.id ? "selected" : "";
   if (o.trash) {
-    return `<div class="card ${isQ ? "q" : ""} ${sel}" data-card="${n.id}">${ic}<div class="body">${isQ ? `<div class="qtext">${linkify(n.text)}</div>` : `<div class="txt">${linkify(n.text)}</div>`}${thumbs(n.images)}${isQ && n.answer ? `<div class="ans"><div class="atext">${linkify(n.answer)}</div></div>` : ""}
+    return `<div class="card ${isQ ? "q" : ""} ${sel}" data-card="${n.id}">${ic}<div class="body">${isQ ? `<div class="qtext">${richText(n.text, n)}</div>` : `<div class="txt">${richText(n.text, n)}</div>`}${isQ && n.answer ? `<div class="ans"><div class="atext">${linkify(n.answer)}</div></div>` : ""}
       <div class="when">written ${relDay(n.date).toLowerCase()} · deleted at ${fmtTime(n.deletedAt)}</div></div>
       <div class="tools wide"><button class="btn sec" data-restore="${n.id}">↩︎ Ripristina</button><button class="btn ter danger" data-purge="${n.id}">Elimina</button></div></div>`;
   }
   if (ui.editing === n.id) {
-    return `<div class="card ${isQ ? "q" : ""}">${ic}<div class="body"><textarea data-edit="${n.id}">${esc(ui.editText ?? n.text)}</textarea>${thumbs(ui.editImages, true)}
+    return `<div class="card ${isQ ? "q" : ""}">${ic}<div class="body"><div class="editor" contenteditable="true" data-edit="${n.id}">${toEditorHtml(ui.editText ?? editSource(n))}</div>
       <div class="edit-act"><button class="btn sec" id="eImg" title="Add image">🖼 Image</button><span class="spacer"></span><button class="btn ter" data-cancel>Cancel</button><button class="btn primary" data-save-edit="${n.id}">✓ Save</button></div></div></div>`;
   }
   let ans = "";
@@ -314,7 +344,7 @@ function cardHtml(n, o = {}) {
       <div class="edit-act"><button class="btn ter" data-cancel>Cancel</button><button class="btn primary" data-save-answer="${n.id}">Save answer</button></div></div>`;
   } else if (isQ && n.answer) ans = `<div class="ans"><div class="atext">${linkify(n.answer)}</div></div>`;
   const tools = `<div class="tools"><button title="Edit" data-edit-btn="${n.id}">✍🏻</button>${isQ ? `<button title="Answer" data-answer-btn="${n.id}">❗️</button>` : ""}${o.goto ? `<button title="Open the journal page" data-goto="${n.id}">📖</button>` : ""}</div>`;
-  return `<div class="card ${isQ ? "q" : ""} ${sel}" data-card="${n.id}">${ic}<div class="body">${isQ ? `<div class="qtext">${linkify(n.text)}</div>` : `<div class="txt">${linkify(n.text)}</div>`}${thumbs(n.images)}${ans}<div class="when">${fmtTime(n.createdAt)}${n.updatedAt !== n.createdAt ? " · edited" : ""}</div></div>${tools}<button class="trash-btn" data-trash="${n.id}" title="Move to trash">🗑</button></div>`;
+  return `<div class="card ${isQ ? "q" : ""} ${sel}" data-card="${n.id}">${ic}<div class="body">${isQ ? `<div class="qtext">${richText(n.text, n)}</div>` : `<div class="txt">${richText(n.text, n)}</div>`}${ans}<div class="when">${fmtTime(n.createdAt)}${n.updatedAt !== n.createdAt ? " · edited" : ""}</div></div>${tools}<button class="trash-btn" data-trash="${n.id}" title="Move to trash">🗑</button></div>`;
 }
 function renderToday(L, R) {
   const v = ui.view, t = today(), isTodayView = v.kind === "date" && v.date === t;
@@ -386,7 +416,7 @@ function renderNotesLists() {
   const L = $("#left"), R = $("#right");
   document.querySelectorAll("[data-keep]").forEach(el => { ui.scroll[el.dataset.keep] = el.scrollTop; });
   const q = ui.nf.q.trim().toLowerCase();
-  const f = n => (!ui.nf.date || n.date === ui.nf.date) && (!q || (n.text + " " + (n.answer || "")).toLowerCase().includes(q));
+  const f = n => (!ui.nf.date || n.date === ui.nf.date) && (!q || (plain(n.text) + " " + (n.answer || "")).toLowerCase().includes(q));
   const sorted = liveNotes().filter(f).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const notes = sorted.filter(n => n.type === "note"), qs = sorted.filter(n => n.type === "question");
   const grouped = list => {
@@ -415,7 +445,7 @@ function renderTrashLists() {
   const L = $("#left"), R = $("#right");
   document.querySelectorAll("[data-keep]").forEach(el => { ui.scroll[el.dataset.keep] = el.scrollTop; });
   const q = ui.tf.q.trim().toLowerCase();
-  const f = n => (!ui.tf.date || delDate(n) === ui.tf.date) && (!q || (n.text + " " + (n.answer || "")).toLowerCase().includes(q));
+  const f = n => (!ui.tf.date || delDate(n) === ui.tf.date) && (!q || (plain(n.text) + " " + (n.answer || "")).toLowerCase().includes(q));
   const sorted = trashNotes().filter(f).sort((a, b) => b.deletedAt.localeCompare(a.deletedAt));
   const grouped = list => {
     if (!list.length) return `<p class="empty">${trashNotes().length ? "Nothing matches" : "The trash is empty"}</p>`;
@@ -443,11 +473,18 @@ function confirmPurge(n) {
   const m = $("#modal"), kind = n.type === "question" ? "questa domanda" : "questa nota";
   m.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
     <h3>Sei sicuro che vuoi eliminare definitivamente ${kind}?</h3>
-    <div class="preview">${esc(n.text)}</div>
+    <div class="preview-card"><div class="preview" id="mPreview">${richText(n.text, n)}${n.type === "question" && n.answer ? `<div class="p-ans">${linkify(n.answer)}</div>` : ""}</div></div>
     <div class="m-act"><button class="btn primary" id="mKeep">No, mantieni</button><button class="btn ter danger" id="mPurge">Elimina definitivamente</button></div></div>`;
   m.hidden = false;
   m.dataset.id = n.id;
-  setTimeout(() => $("#mKeep").focus(), 20);
+  setTimeout(() => { $("#mKeep").focus(); fadeEdges($("#mPreview")); }, 20);
+  $("#mPreview").addEventListener("scroll", e => fadeEdges(e.target));
+}
+function fadeEdges(el) {
+  if (!el) return;
+  const more = el.scrollHeight - el.clientHeight > 2;
+  el.classList.toggle("fade-top", more && el.scrollTop > 2);
+  el.classList.toggle("fade-bottom", more && el.scrollTop + el.clientHeight < el.scrollHeight - 2);
 }
 function closeModal() { const m = $("#modal"); m.hidden = true; m.innerHTML = ""; }
 
@@ -574,8 +611,9 @@ document.addEventListener("mousedown", e => {
 
 /* ---------- chiudere il quaderno cliccando fuori ---------- */
 function hasUnsaved() {
-  if (ui.composer && (ui.composer.text.trim() || (ui.composer.images || []).length)) return true;
-  const ta = document.querySelector("[data-edit], [data-answer]");
+  if (ui.composer && ui.composer.text.trim()) return true;
+  const ed = document.querySelector("[data-edit]"), ta = document.querySelector("[data-answer]");
+  if (ed && ui.editing && val(ed) !== editSource(noteById(ui.editing))) return true;
   return !!(ta && ta.value.trim() && ta.value !== ta.defaultValue);
 }
 function closeBook() {
@@ -643,30 +681,60 @@ async function attachImages(files, target) {
     } catch (e) { toast("Couldn't read this image"); }
   }
   if (!ids.length) return;
-  if (target === "composer" && ui.composer) { ui.composer.images = [...(ui.composer.images || []), ...ids]; render(); }
-  else if (target === "edit" && ui.editing) { ui.editImages = [...ui.editImages, ...ids]; rerenderKeep(); }
-  else ids.forEach(id => IDB.del(id));
+  const ed = target === "composer" ? $("#cText") : (target === "edit" ? $("[data-edit]") : null);
+  if (!ed) { ids.forEach(id => IDB.del(id)); return; }
+  insertImages(ed, ids);
+  if (target === "composer" && ui.composer) ui.composer.text = serialize(ed); else ui.editText = serialize(ed);
   toast(ids.length > 1 ? `${ids.length} images added` : "Image added 🖼");
 }
+function insertImages(ed, ids) {
+  ed.focus();
+  let r = ui.lastRange && ed.contains(ui.lastRange.startContainer) ? ui.lastRange : null;
+  if (!r) { r = document.createRange(); r.selectNodeContents(ed); r.collapse(false); }
+  const frag = document.createDocumentFragment();
+  let tail;
+  ids.forEach(id => {
+    const box = document.createElement("span"); box.innerHTML = editorImg(id);
+    frag.appendChild(document.createElement("br")); frag.appendChild(box.firstChild);
+    frag.appendChild(document.createElement("br"));
+  });
+  tail = document.createTextNode("\u200b"); frag.appendChild(tail);
+  r.deleteContents(); r.insertNode(frag);
+  const nr = document.createRange(); nr.setStart(tail, 1); nr.collapse(true);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(nr); ui.lastRange = nr.cloneRange();
+}
 function removeImage(id) {
-  if (ui.composer && (ui.composer.images || []).includes(id)) { ui.composer.images = ui.composer.images.filter(x => x !== id); IDB.del(id); render(); return; }
-  if (ui.editing) { ui.editText = ($("[data-edit]") || {}).value ?? ui.editText; ui.editImages = ui.editImages.filter(x => x !== id); rerenderKeep(); }
+  const btn = document.querySelector(`[data-rmimg="${id}"]`), ed = btn && btn.closest(".editor");
+  if (btn) btn.closest(".th").remove();
+  if (ed && ed.id === "cText" && ui.composer) { ui.composer.text = serialize(ed); IDB.del(id); }
+  else if (ed) ui.editText = serialize(ed);
+}
+function editSource(n) {
+  if (!n) return "";
+  const extra = (n.images || []).filter(id => !imgIds(n.text).includes(id));
+  return n.text + extra.map(id => `\n[[img:${id}]]`).join("");
 }
 function cancelEditImages() {
-  const n = ui.editing && noteById(ui.editing);
-  if (n) ui.editImages.filter(id => !(n.images || []).includes(id)).forEach(id => IDB.del(id));
+  const n = ui.editing && noteById(ui.editing), ed = $("[data-edit]");
+  if (n && ed) imgIds(serialize(ed)).filter(id => !(n.images || []).includes(id)).forEach(id => IDB.del(id));
   ui.editImages = []; ui.editText = null;
 }
+document.addEventListener("selectionchange", () => {
+  const s = getSelection(); if (!s.rangeCount) return;
+  const r = s.getRangeAt(0), node = r.startContainer, el = node.nodeType === 1 ? node : node.parentElement;
+  if (el && el.closest && el.closest(".editor")) ui.lastRange = r.cloneRange();
+});
 function openLightbox(src) { const lb = $("#lightbox"); lb.innerHTML = `<img src="${src}" alt=""><button class="lb-x" title="Close">×</button>`; lb.hidden = false; }
 function closeLightbox() { const lb = $("#lightbox"); lb.hidden = true; lb.innerHTML = ""; }
 document.addEventListener("paste", e => {
-  const t = e.target, target = (t.id === "cText" || t.id === "cAns") ? "composer" : (t.dataset && t.dataset.edit ? "edit" : null);
+  const t = e.target.closest ? e.target.closest(".editor") || e.target : e.target;
+  const target = t.id === "cText" ? "composer" : (t.dataset && t.dataset.edit ? "edit" : null);
   if (!target) return;
   const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith("image/"));
-  if (!files.length) return;
   e.preventDefault();
-  if (target === "edit") ui.editText = t.value;
-  attachImages(files, target);
+  if (files.length) { attachImages(files, target); return; }
+  const text = e.clipboardData ? e.clipboardData.getData("text/plain") : "";
+  if (text) document.execCommand("insertText", false, text);
 });
 
 /* ---------- note ---------- */
@@ -716,16 +784,17 @@ document.addEventListener("click", e => {
   if (ds.add) { ui.composer = { type: ds.add, text: "", answer: null, images: [] }; render(); return; }
   if (ds.tag) { ui.todayTag = ds.tag; render(); return; }
   if (ds.rmimg) { removeImage(ds.rmimg); return; }
-  if (ds.editBtn) { const n0 = noteById(ds.editBtn); ui.editing = ds.editBtn; ui.editText = null; ui.editImages = [...((n0 && n0.images) || [])]; ui.answering = null; rerenderKeep(); focusSoon(`[data-edit="${ds.editBtn}"]`); return; }
+  if (ds.editBtn) { ui.editing = ds.editBtn; ui.editText = null; ui.answering = null; rerenderKeep(); setTimeout(() => { const ed = $(`[data-edit="${ds.editBtn}"]`); if (ed) caretEnd(ed); }, 20); return; }
   if (ds.answerBtn) { ui.answering = ds.answerBtn; ui.editing = null; rerenderKeep(); focusSoon(`[data-answer="${ds.answerBtn}"]`); return; }
   if (ds.cancel !== undefined) { cancelEditImages(); ui.editing = null; ui.answering = null; rerenderKeep(); return; }
   if (ds.saveEdit) {
-    const n = noteById(ds.saveEdit), v = $(`[data-edit="${ds.saveEdit}"]`).value.trim();
-    if (n && (v || ui.editImages.length)) {
-      (n.images || []).filter(id => !ui.editImages.includes(id)).forEach(id => IDB.del(id));
-      n.text = v; n.images = [...ui.editImages]; n.updatedAt = nowIso(); log("edit", n.id); save();
+    const n = noteById(ds.saveEdit), v = val($(`[data-edit="${ds.saveEdit}"]`));
+    if (n && v) {
+      const keep = imgIds(v);
+      (n.images || []).filter(id => !keep.includes(id)).forEach(id => IDB.del(id));
+      n.text = v; n.images = keep; n.updatedAt = nowIso(); log("edit", n.id); save();
     }
-    ui.editing = null; ui.editText = null; ui.editImages = []; rerenderKeep(); return;
+    ui.editing = null; ui.editText = null; rerenderKeep(); return;
   }
   if (ds.saveAnswer) {
     const n = noteById(ds.saveAnswer), v = $(`[data-answer="${ds.saveAnswer}"]`).value.trim();
@@ -747,13 +816,13 @@ document.addEventListener("click", e => {
   switch (el.id) {
     case "openToday": go("today"); break;
     case "allBtn": ui.allTasks = !ui.allTasks; ui.allAnim = ui.allTasks; render(); ui.allAnim = false; break;
-    case "cCancel": (ui.composer.images || []).forEach(id => IDB.del(id)); ui.composer = null; render(); break;
+    case "cCancel": imgIds(val($("#cText"))).forEach(id => IDB.del(id)); ui.composer = null; render(); break;
     case "cImg": ui.imgTarget = "composer"; $("#imgFile").click(); break;
-    case "eImg": ui.editText = ($("[data-edit]") || {}).value ?? ui.editText; ui.imgTarget = "edit"; $("#imgFile").click(); break;
+    case "eImg": ui.imgTarget = "edit"; $("#imgFile").click(); break;
     case "cAddAns": ui.composer.answer = ""; render(); setTimeout(() => { const a = $("#cAns"); if (a) a.focus(); }, 20); break;
     case "cSave": {
-      const v = ($("#cText").value || "").trim(), imgs = ui.composer.images || [];
-      if (!v && !imgs.length) { toast("Write something first"); return; }
+      const v = val($("#cText")), imgs = imgIds(v);
+      if (!v) { toast("Write something first"); return; }
       const type = ui.composer.type, ansEl = $("#cAns"), ans = ansEl ? ansEl.value.trim() : "";
       const nid = addNote(type, v);
       if (imgs.length) { noteById(nid).images = [...imgs]; save(); }
@@ -828,16 +897,16 @@ document.addEventListener("change", e => {
   if (e.target.id === "imgFile") { const files = [...e.target.files]; e.target.value = ""; attachImages(files, ui.imgTarget); }
 });
 document.addEventListener("input", e => {
-  if (e.target.id === "cText" && ui.composer) ui.composer.text = e.target.value;
+  if (e.target.id === "cText" && ui.composer) ui.composer.text = val(e.target);
   if (e.target.id === "cAns" && ui.composer) ui.composer.answer = e.target.value;
-  if (e.target.dataset && e.target.dataset.edit) ui.editText = e.target.value;
+  if (e.target.dataset && e.target.dataset.edit) ui.editText = val(e.target);
   if (e.target.id === "tfQ") { ui.tf.q = e.target.value; const x = $("#tfQClear"); if (x) x.hidden = !ui.tf.q; renderTrashLists(); }
   if (e.target.id === "nfQ") { ui.nf.q = e.target.value; const x = $("#nfQClear"); if (x) x.hidden = !ui.nf.q; renderNotesLists(); }
 });
 document.addEventListener("keydown", e => {
   if (e.target.id === "nfDate" && e.key === "Enter") applyTypedFilter(e.target);
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-    const t = e.target;
+    const t = e.target.closest ? (e.target.closest(".editor") || e.target) : e.target;
     if (t.id === "cText" || t.id === "cAns") { e.preventDefault(); $("#cSave").click(); }
     else if (t.dataset && t.dataset.edit) { e.preventDefault(); $(`[data-save-edit="${t.dataset.edit}"]`).click(); }
     else if (t.dataset && t.dataset.answer) { e.preventDefault(); $(`[data-save-answer="${t.dataset.answer}"]`).click(); }
@@ -882,7 +951,7 @@ function fallbackCopy(text, cb) {
 }
 async function exportData() {
   const images = {};
-  for (const id of D.notes.flatMap(n => n.images || [])) { const u = await IDB.get(id).catch(() => null); if (u) images[id] = u; }
+  for (const id of new Set(D.notes.flatMap(n => [...(n.images || []), ...imgIds(n.text)]))) { const u = await IDB.get(id).catch(() => null); if (u) images[id] = u; }
   const blob = new Blob([JSON.stringify({ ...D, images }, null, 2)], { type: "application/json" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `my-study-journal-${today()}.json`; a.click();
   toast("Backup downloaded");
