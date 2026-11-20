@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Study Journal</title>
+<link rel="icon" href="icon-512.png">
+<link rel="apple-touch-icon" href="icon-512.png">
+<link rel="manifest" href="manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Nunito:wght@400;600;700;800&family=Shippori+Mincho:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="confetti"></canvas>
+<div class="stage">
+  <div class="book closed" id="book">
+    <div class="page left"><div class="pin" id="left"></div></div>
+    <div class="page right"><div class="pin" id="right"></div></div>
+    <div class="spread-head" id="spreadHead"></div>
+    <div class="leaf" id="leaf"></div>
+
+    <div class="cover" id="cover" title="Apri il quaderno">
+      <div class="cover-face">
+        <div class="band"></div>
+        <div class="vertical">勉強日記</div>
+        <div class="sun"><span>学</span></div>
+        <h1>My Study Journal</h1>
+        <div class="sub">bullet study plan</div>
+        <div class="rank-seal" id="coverSeal">入</div>
+        <div class="hint">open me ✿</div>
+      </div>
+      <div class="cover-back"></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab plan" data-s="plan">Full plan<small>piano</small></button>
+      <button class="tab today" data-s="today">Today<small>oggi</small></button>
+      <button class="tab notes" data-s="notes">Notes<small>note e domande</small></button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="plan.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
