@@ -218,10 +218,10 @@ function rank() {
 const ui = {
   open: false, section: null, view: { kind: "date", date: today() },
   composer: null, todayTag: "all", allTasks: false, editing: null, answering: null,
-  page: { plan: "home", today: "home", notes: "home" }, cameFrom: {}, editingHome: null, planSpread: 0, pp: null, pendingBlock: null,
+  page: { plan: "home", today: "home", notes: "home", history: "home" }, hq: "", hp: null, histSpread: 0, cameFrom: {}, editingHome: null, planSpread: 0, pp: null, pendingBlock: null,
   planOpen: new Set(), planScrolled: false, lastCurrent: null, allAnim: false, selected: null, editText: null, editImages: [], imgTarget: null, lastRange: null, tf: { date: null, q: "" }, nf: { date: null, q: "" }, scroll: {}, lastSection: null, flipping: false
 };
-const ORDER = { plan: 0, today: 1, notes: 2, trash: 3 };
+const ORDER = { plan: 0, today: 1, notes: 2, history: 3, trash: 4 };
 
 /* ---------- rendering ---------- */
 function render() {
@@ -242,9 +242,11 @@ function render() {
   else if (ui.section === "plan") renderPlan(L, R);
   else if (ui.section === "today") renderToday(L, R);
   else if (ui.section === "trash") renderTrash(L, R);
+  else if (ui.section === "history") renderHistory(L, R);
   else renderNotes(L, R);
   if (same) document.querySelectorAll("[data-keep]").forEach(el => { if (ui.scroll[el.dataset.keep] != null) el.scrollTop = ui.scroll[el.dataset.keep]; });
   ui.lastSection = ui.section;
+  saveUi();
   const ta = $("#cText"); if (ta && document.activeElement !== ta) caretEnd(ta);
 }
 
@@ -260,6 +262,21 @@ function movedTag(id) {
   if (ui.section !== "today") return "";
   const from = D.movedFrom[id] || (ui.carryPreview && ui.carryPreview.ids.includes(id) ? ui.carryPreview.from : null);
   return from ? `<span class="moved-tag">from ${esc(relDay(from))}</span>` : "";
+}
+const UIKEY = "msj-ui-v1";
+function saveUi() {
+  if (!ui.open || !ui.section) return;
+  try { localStorage.setItem(UIKEY, JSON.stringify({ section: ui.section, page: ui.page, view: ui.view, planSpread: ui.planSpread, histSpread: ui.histSpread, date: today() })); } catch (e) {}
+}
+function resumeLast() {
+  let sv = null; try { sv = JSON.parse(localStorage.getItem(UIKEY)); } catch (e) {}
+  if (!sv || !sv.section || !ORDER.hasOwnProperty(sv.section)) return;
+  const s = sv.section === "trash" && !trashNotes().length ? "notes" : sv.section;
+  Object.assign(ui.page, sv.page || {});
+  let view = sv.view || { kind: "date", date: today() };
+  if (view.kind === "intro" || view.kind === "future" || (sv.date !== today() && view.kind === "date" && view.date === sv.date)) view = { kind: "date", date: today() };
+  ui.planSpread = sv.planSpread || 0; ui.histSpread = sv.histSpread || 0;
+  setTimeout(() => go(s, { page: s === "trash" ? "content" : (ui.page[s] || "home"), view, keepScroll: true }), 650);
 }
 function pill(type) { return `<span class="pill ${type}">${TYPES[type] || ""}</span>`; }
 function taskRow(id, o = {}) {
@@ -347,7 +364,83 @@ function openBlock(id) {
   ui.pendingBlock = id;
   go("plan", { page: "content", keepScroll: true });
 }
-window.addEventListener("resize", () => { clearTimeout(window.__rz); window.__rz = setTimeout(() => { ui.pp = null; if (ui.open) render(); }, 150); });
+window.addEventListener("resize", () => { clearTimeout(window.__rz); window.__rz = setTimeout(() => { ui.pp = null; ui.hp = null; if (ui.open) render(); }, 150); });
+
+/* --- History: le sessioni completate, dalla più recente, a pagine --- */
+function histSessions(all) {
+  const byDate = {};
+  Object.entries(D.done).forEach(([id, x]) => { if (TASK[id]) (byDate[x.date] = byDate[x.date] || []).push(id); });
+  const q = all ? "" : ui.hq.trim().toLowerCase();
+  return Object.keys(byDate).sort().reverse().map(date => {
+    const ids = byDate[date].sort((a, b) => D.done[a].at.localeCompare(D.done[b].at));
+    const shown = q ? ids.filter(id => TASK[id].text.toLowerCase().includes(q)) : ids;
+    const notes = liveNotes().filter(n => n.date === date);
+    return { date, ids, shown, pts: ids.reduce((a, id) => a + pts(id), 0), first: D.done[ids[0]].at, last: D.done[ids[ids.length - 1]].at,
+      nn: notes.filter(n => n.type === "note").length, nq: notes.filter(n => n.type === "question").length };
+  }).filter(sx => sx.shown.length);
+}
+function histHead(sx, cont) {
+  const d = parseYmd(sx.date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" });
+  const g = TASK[sx.ids[0]].day.g, span = sx.ids.length > 1 ? ` · ${fmtTime(sx.first)}–${fmtTime(sx.last)}` : "";
+  return `<div class="hs-head ${cont ? "cont" : ""}"><span class="hs-date">${d}${cont ? " (continued)" : ""}</span>${cont ? "" : `<span class="hs-meta">Week ${weekOf(g)} · ${sx.ids.length} ${sx.ids.length === 1 ? "task" : "tasks"} · ${sx.pts} pts${span}</span>`}</div>`;
+}
+function histRow(id) {
+  const t = TASK[id];
+  return `<div class="hs-row"><span class="hs-ok">✓</span><span class="hs-t">${pill(t.type)}${esc(t.text)}${tlinks(t)}</span><span class="hs-tm">${fmtTime(D.done[id].at)}</span></div>`;
+}
+function histPaginate(body) {
+  const W = body.clientWidth, H = body.clientHeight, list = histSessions();
+  const key = `${W}x${H}|${ui.hq}|${Object.keys(D.done).length}|${D.notes.length}`;
+  if (ui.hp && ui.hp.key === key) return ui.hp;
+  const m = document.createElement("div");
+  m.style.cssText = `position:absolute;visibility:hidden;left:0;top:0;width:${W}px`;
+  body.appendChild(m);
+  const hOf = html => { m.innerHTML = html; return m.offsetHeight; };
+  const pages = [[]], dateSpread = {};
+  let used = 0;
+  const put = (html, sx) => {
+    const h = hOf(html);
+    if (used + h > H && pages[pages.length - 1].length) {
+      pages.push([]); used = 0;
+      if (sx) { const c = histHead(sx, true); pages[pages.length - 1].push(c); used += hOf(c); }
+    }
+    pages[pages.length - 1].push(html); used += h;
+  };
+  list.forEach(sx => {
+    put(`<div class="hs-start"></div>` + histHead(sx));
+    dateSpread[sx.date] = Math.floor((pages.length - 1) / 2);
+    sx.shown.forEach(id => put(histRow(id), sx));
+    const extra = [sx.nn ? `${sx.nn} ${sx.nn === 1 ? "note" : "notes"}` : "", sx.nq ? `${sx.nq} ${sx.nq === 1 ? "question" : "questions"}` : ""].filter(Boolean).join(" · ");
+    put(`<div class="hs-foot">${extra ? "+ " + extra : ""}</div>`);
+  });
+  if (list.length) put(`<p class="hs-end">— the first page of your journal —</p>`);
+  m.remove();
+  ui.hp = { key, pages, dateSpread, spreads: Math.max(1, Math.ceil(pages.length / 2)), empty: !list.length };
+  return ui.hp;
+}
+function fillHistory() {
+  const bl = $("#hL"), br = $("#hR"); if (!bl) return;
+  bl.innerHTML = ""; br.innerHTML = "";
+  const hp = histPaginate(bl);
+  ui.histSpread = Math.max(0, Math.min(ui.histSpread || 0, hp.spreads - 1));
+  const s = ui.histSpread;
+  if (hp.empty) bl.innerHTML = `<p class="empty">${Object.keys(D.done).length ? "Nothing matches your search" : "Nothing completed yet. Your first ✓ will appear here."}</p>`;
+  else { bl.innerHTML = (hp.pages[s * 2] || []).join(""); br.innerHTML = (hp.pages[s * 2 + 1] || []).join(""); }
+  $("#hPrev").disabled = s === 0; $("#hNext").disabled = s >= hp.spreads - 1;
+}
+function renderHistory(L, R) {
+  L.innerHTML = `<div class="pp-top">${homeBtn("history")}</div><div class="pp-body" id="hL"></div><button class="pp-arrow left" id="hPrev" title="Newer">‹</button>`;
+  R.innerHTML = `<div class="pp-top right"><div class="search h-search">🔍<input id="hQ" placeholder="Search the history" value="${esc(ui.hq)}"><button class="clear-x" id="hQClear" ${ui.hq ? "" : "hidden"}>✕</button></div>
+    <button class="btn sec" id="hDates">All sessions <span class="chev-d">⌄</span></button></div><div class="pp-body" id="hR"></div><button class="pp-arrow right" id="hNext" title="Older">›</button>`;
+  fillHistory();
+}
+function histFlipTo(target) {
+  const hp = ui.hp; if (!hp) return;
+  target = Math.max(0, Math.min(target, hp.spreads - 1));
+  if (target === ui.histSpread) return;
+  const diff = target - ui.histSpread;
+  flip(diff > 0 ? 1 : -1, Math.min(Math.abs(diff), 6), () => { ui.histSpread = target; render(); });
+}
 
 /* --- Today --- */
 function noteCounts(list) { return { n: list.some(x => x.type === "note"), q: list.some(x => x.type === "question") }; }
@@ -537,7 +630,7 @@ function dayNav() {
     <button class="btn sec" id="dayPrev" ${prevOff ? "disabled" : ""}>← Previous session</button><button class="btn sec" id="dayNext" ${nextOff ? "disabled" : ""}>Next session →</button>${isT ? "" : `<button class="btn sec" id="goToday">Go today</button>`}</div>`;
 }
 function homeBtn(section) {
-  const name = { plan: "Full plan", today: "Daily tasks", notes: "Notes and questions" }[section];
+  const name = { plan: "Full plan", today: "Daily tasks", notes: "Notes and questions", history: "History" }[section];
   return `<button class="btn ter home-btn" data-home="${section}">📒 ${name} home</button>`;
 }
 function renderSideTab(onHome) {
@@ -567,6 +660,8 @@ const HOME = {
   plan: { title: "The plan to master vibe coding", btn: "The plan", back: "Back to the plan",
     def: "Fourteen short steps from zero to building real apps. Each one ends with something small and useful, plus a few exercises to do without AI. Then the kanji app, as a real product." },
   today: { title: "Daily tasks" },
+  history: { title: "History", btn: "See history", back: "Back to the history",
+    def: "Everything you've completed, session by session, starting from the most recent. Search for a task or jump to a date." },
   notes: { title: "Notes and questions", btn: "Check notes and questions", back: "Back to notes and questions",
     def: "Everything that comes to mind while studying: notes to remember and questions to answer later, with links and screenshots." }
 };
@@ -988,12 +1083,12 @@ document.addEventListener("paste", e => {
 });
 
 /* ---------- menu "Other sessions" ---------- */
-function openSessions(anchor) {
+function openSessions(anchor, opts = {}) {
   if (calEl && calAnchor === anchor) { closeCal(); return; }
   closeCal();
   calAnchor = anchor;
-  const t = today(), cur = ui.view.kind === "date" ? ui.view.date : null;
-  const days = [...new Set([t, ...entryDates()])].sort().reverse();
+  const t = today(), cur = "cur" in opts ? opts.cur : (ui.view.kind === "date" ? ui.view.date : null);
+  const days = opts.dates || [...new Set([t, ...entryDates()])].sort().reverse();
   let html = "", lastMonth = null;
   days.forEach(d => {
     const dt = parseYmd(d), month = dt.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
@@ -1012,7 +1107,7 @@ function openSessions(anchor) {
     e.stopPropagation();
     const b = e.target.closest("[data-sess]"); if (!b) return;
     const d = b.dataset.sess; closeCal();
-    if (d !== cur) goView({ kind: "date", date: d });
+    if (opts.onPick) opts.onPick(d); else if (d !== cur) goView({ kind: "date", date: d });
   });
   $(".stage").appendChild(calEl);
   const c = calEl.querySelector(".sm-row.cur"); if (c) c.scrollIntoView({ block: "nearest" });
@@ -1099,6 +1194,10 @@ document.addEventListener("click", e => {
     case "openToday": go("today", { page: "content", view: { kind: "date", date: today() } }); break;
     case "homeGo": leaveHome(); break;
     case "ppPrev": planFlipTo(ui.planSpread - 1); break;
+    case "hPrev": histFlipTo(ui.histSpread - 1); break;
+    case "hNext": histFlipTo(ui.histSpread + 1); break;
+    case "hDates": openSessions(el, { dates: histSessions(true).map(x => x.date), cur: null, onPick: d => { if (ui.hp) histFlipTo(ui.hp.dateSpread[d] ?? 0); } }); break;
+    case "hQClear": ui.hq = ""; $("#hQ").value = ""; el.hidden = true; ui.hp = null; ui.histSpread = 0; fillHistory(); break;
     case "ppNext": planFlipTo(ui.planSpread + 1); break;
     case "ppToday": planFlipTo(ui.pp ? (ui.pp.daySpread[currentG()] ?? 0) : 0); break;
     case "introGo": {
@@ -1195,6 +1294,7 @@ document.addEventListener("input", e => {
   if (e.target.id === "cText" && ui.composer) ui.composer.text = val(e.target);
   if (e.target.id === "cAns" && ui.composer) ui.composer.answer = e.target.value;
   if (e.target.dataset && e.target.dataset.edit) ui.editText = val(e.target);
+  if (e.target.id === "hQ") { ui.hq = e.target.value; const x = $("#hQClear"); if (x) x.hidden = !ui.hq; ui.hp = null; ui.histSpread = 0; fillHistory(); }
   if (e.target.id === "tfQ") { ui.tf.q = e.target.value; const x = $("#tfQClear"); if (x) x.hidden = !ui.tf.q; renderTrashLists(); }
   if (e.target.id === "nfQ") { ui.nf.q = e.target.value; const x = $("#nfQClear"); if (x) x.hidden = !ui.nf.q; renderNotesLists(); }
 });
@@ -1288,4 +1388,5 @@ function tick() {
 try { if (window.outerWidth > screen.availWidth * 0.97) { window.resizeTo(1320, 900); window.moveTo((screen.availWidth - 1320) / 2, (screen.availHeight - 900) / 2); } } catch (e) {}
 
 render();
+resumeLast();
 })();

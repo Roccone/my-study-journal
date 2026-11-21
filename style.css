@@ -3,7 +3,7 @@
   --paper:#fbf8f1; --paper-2:#f6f1e6; --dot:#ddd4c2; --ink:#3e3550; --brown:#6d5a96; --brown-2:#8a77b0; --brown-soft:rgba(109,90,150,.12); --field:#d8cfe6; --field-focus:#b3a5cf; --violet-dark:#54447d; --muted:#8a7f74; --faint:#b9ae9f; --line:#e7dfcf;
   --red:#c0392b; --red-soft:#f6dcd6; --indigo:#1f2f4f; --indigo-2:#2b4170; --gold:#d6a03a;
   --green:#4a8b5c; --green-soft:#dfeee2; --blue:#3a6ea5;
-  --tab-plan:#7e93b4; --tab-sub:#b4c1d6; --tab-today:#c88a7e; --tab-notes:#e2c47c; --tab-trash:#b7b2aa;
+  --tab-plan:#7e93b4; --tab-sub:#b4c1d6; --tab-today:#c88a7e; --tab-notes:#e2c47c; --tab-trash:#b7b2aa; --tab-history:#a3b18a;
   --hand:"Caveat","Bradley Hand","Segoe Print",cursive;
   --sans:"Nunito","Avenir Next",system-ui,-apple-system,sans-serif;
   --bw:min(1160px, calc(100vw - 240px));
@@ -441,3 +441,20 @@ canvas#confetti{position:fixed;inset:0;pointer-events:none;z-index:90}
 /* riporto dei task non finiti */
 .carry-note{margin:10px 0 2px;font-size:12.5px;line-height:1.45;color:var(--violet-dark);background:var(--brown-soft);border-radius:9px;padding:7px 11px}
 .moved-tag{display:inline-block;margin-left:6px;font-size:10.5px;font-weight:800;color:#8a5a2b;background:#f4e6cf;border-radius:6px;padding:1px 6px;vertical-align:1px}
+
+/* History */
+.tab.history{background:var(--tab-history);color:#26301c}
+.h-search{width:auto;flex:1;max-width:250px;padding:4px 10px}
+.pp-top.right{gap:8px}
+.hs-start{height:2px}
+.hs-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;margin:4px 0 4px}
+.hs-head.cont{margin-top:0}
+.hs-date{font-family:var(--hand);font-size:24px;font-weight:700;color:var(--violet-dark);line-height:1.1}
+.hs-head.cont .hs-date{font-size:18px;color:var(--muted)}
+.hs-meta{font-size:11.5px;color:var(--muted)}
+.hs-row{display:flex;gap:8px;align-items:flex-start;padding:4px 4px;font-size:13.5px;line-height:1.4}
+.hs-ok{color:var(--green);font-weight:900}
+.hs-t{flex:1}
+.hs-tm{font-size:11px;color:var(--faint);white-space:nowrap;padding-top:2px}
+.hs-foot{font-size:11.5px;color:var(--muted);padding:2px 4px 10px;border-bottom:1px dashed var(--line);margin-bottom:10px;min-height:6px}
+.hs-end{font-family:var(--hand);font-size:19px;color:var(--faint);text-align:center;margin:18px 0}
