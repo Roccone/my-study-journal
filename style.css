@@ -421,3 +421,13 @@ canvas#confetti{position:fixed;inset:0;pointer-events:none;z-index:90}
 .intro-ul{margin:0;padding-left:18px;font-size:14.5px;line-height:1.6}
 /* cestino: hover come selezionato */
 .card.trash-card:hover{transform:translateY(-2px) scale(1.015);border:2px solid var(--brown-2);background:#faf8fe;padding:9px 11px;box-shadow:0 10px 24px rgba(84,68,125,.22);z-index:1}
+
+/* diario chiuso: Full plan in cima, le sotto-etichette sotto, una sotto l'altra */
+.book.closed .tabs:not(.tabs-left) .tab.plan{z-index:12;box-shadow:3px 3px 8px rgba(0,0,0,.28)}
+.book.closed .tab.sub{box-shadow:2px 3px 6px rgba(0,0,0,.28)}
+.book.closed .tab.sub:nth-child(2){z-index:11}
+.book.closed .tab.sub:nth-child(3){z-index:10}
+.book.closed .tab.sub:nth-child(4){z-index:9}
+.book.closed .tab.sub:nth-child(5){z-index:8}
+.book.closed .tab.sub:nth-child(6){z-index:7}
+.book.closed .tab.today{margin-top:6px}
