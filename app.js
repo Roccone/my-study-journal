@@ -65,7 +65,8 @@ window.PLAN.forEach(b => b.steps.forEach(s => {
     const day = { g: DAYS.length, step: s, di, tasks: [] };
     arr.forEach((raw, ti) => {
       const id = `${s.n}-${di}-${ti}`;
-      TASK[id] = { id, type: raw[0], text: raw.slice(2), day, order: order++ };
+      const [txt, ...links] = raw.slice(2).split("|");
+      TASK[id] = { id, type: raw[0], text: txt.trim(), links: links.map(x => x.trim()).filter(Boolean), day, order: order++ };
       day.tasks.push(id);
     });
     s.dayIdx.push(day.g); DAYS.push(day);
@@ -200,13 +201,21 @@ function render() {
   const ta = $("#cText"); if (ta && document.activeElement !== ta) caretEnd(ta);
 }
 
+function linkLabel(u) {
+  let h = ""; try { h = new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return "link"; }
+  return ({ "theodinproject.com": "Odin", "developer.mozilla.org": "MDN", "github.com": "GitHub", "docs.github.com": "GitHub Docs", "react.dev": "React", "nextjs.org": "Next.js", "help.figma.com": "Figma", "docs.claude.com": "Claude Code" })[h] || h;
+}
+function tlinks(t) {
+  if (!t.links || !t.links.length) return "";
+  return `<span class="tlinks">${t.links.map(u => `<a class="tlink" href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(linkLabel(u))} ↗</a>`).join("")}</span>`;
+}
 function pill(type) { return `<span class="pill ${type}">${TYPES[type] || ""}</span>`; }
 function taskRow(id, o = {}) {
   const t = TASK[id]; if (!t) return "";
   const done = isDone(id);
   const copy = t.type === "C" && !o.disabled ? `<button class="btn copy" data-copy="${t.day.step.n}">copia richiesta</button>` : "";
   return `<label class="task ${done ? "done" : ""}"><input type="checkbox" class="chk" data-task="${id}" ${done ? "checked" : ""} ${o.disabled ? "disabled" : ""}>
-    <span class="t">${pill(t.type)}${esc(t.text)}${o.ctx ? `<br><small style="color:var(--faint)">Scaglione ${t.day.step.n} · day ${t.day.di + 1}</small>` : ""}</span>${copy}</label>`;
+    <span class="t">${pill(t.type)}${esc(t.text)}${tlinks(t)}${o.ctx ? `<br><small style="color:var(--faint)">Scaglione ${t.day.step.n} · day ${t.day.di + 1}</small>` : ""}</span>${copy}</label>`;
 }
 
 /* --- Full plan --- */
@@ -450,7 +459,7 @@ function renderToday(L, R) {
       const c = TASK[cur];
       const anim = ui.lastCurrent !== cur; ui.lastCurrent = cur;
       body += `<div class="current-task ${anim ? "anim" : ""}"><div style="font-size:11.5px;color:var(--muted);margin-bottom:6px">Scaglione ${c.day.step.n} · ${esc(c.day.step.title)}</div>
-        <div class="row" style="align-items:flex-start"><input type="checkbox" class="chk" data-task="${cur}"><div class="t">${pill(c.type)}${esc(c.text)}</div></div>
+        <div class="row" style="align-items:flex-start"><input type="checkbox" class="chk" data-task="${cur}"><div class="t">${pill(c.type)}${esc(c.text)}${tlinks(c)}</div></div>
         <div class="act">${c.type === "C" ? `<button class="btn" data-copy="${c.day.step.n}">📋 copia richiesta</button>` : ""}<button class="btn primary" data-complete="${cur}">✓ Done</button></div></div>`;
     } else if (tasks.length) {
       const more = nextPlanDay() < DAYS.length;
@@ -523,7 +532,7 @@ function renderHome(L, R) {
       <div class="progress"><i style="width:${xp / max * 100}%"></i></div>
       <div class="chart-wrap"><div class="chart-scroll" id="chartScroll">${handChart()}</div></div>
       <div class="next-lab">Next task</div>
-      ${nt ? `<div class="next-card">${pill(nt.type)}${esc(nt.text)}<div class="next-ctx">Scaglione ${nt.day.step.n} · ${esc(nt.day.step.title)}</div></div>` : `<div class="next-card done">All done for today. お疲れ様!</div>`}
+      ${nt ? `<div class="next-card">${pill(nt.type)}${esc(nt.text)}${tlinks(nt)}<div class="next-ctx">Scaglione ${nt.day.step.n} · ${esc(nt.day.step.title)}</div></div>` : `<div class="next-card done">All done for today. お疲れ様!</div>`}
     </div>`;
     if (c && c.view) {
       const v = c.view;

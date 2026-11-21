@@ -431,3 +431,9 @@ canvas#confetti{position:fixed;inset:0;pointer-events:none;z-index:90}
 .book.closed .tab.sub:nth-child(5){z-index:8}
 .book.closed .tab.sub:nth-child(6){z-index:7}
 .book.closed .tab.today{margin-top:6px}
+
+/* link delle lezioni */
+.tlinks{display:inline-flex;flex-wrap:wrap;gap:4px;margin-left:6px;vertical-align:1px}
+.tlink{font-size:11px;font-weight:800;color:var(--brown);background:var(--brown-soft);border-radius:6px;padding:1px 7px;text-decoration:none;white-space:nowrap}
+.tlink:hover{background:var(--brown);color:#fff}
+.task.done .tlink{opacity:.6}

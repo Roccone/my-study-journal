@@ -7,7 +7,7 @@ Bullet journal digitale per seguire, giorno per giorno, il piano di studio di vi
 
 ## Come lavorare su questo progetto
 
-- Rispondi in **italiano**. Le scritte dell'interfaccia sono in **inglese**, i contenuti del piano in italiano.
+- Rispondi nella **lingua in cui scrive René** (passa tra italiano e inglese). Le scritte dell'interfaccia sono in **inglese**, i contenuti del piano in italiano.
 - **Chiedi prima** se qualcosa è ambiguo; per i cambi grandi mostra un **mockup** prima di scrivere codice.
 - Testa con Chrome headless + screenshot prima di pubblicare, poi commit e push su `main`.
 - Aggiorna questo file quando cambiano decisioni, stato o prossimi passi.
@@ -19,7 +19,7 @@ Bullet journal digitale per seguire, giorno per giorno, il piano di studio di vi
 | `index.html` | Struttura: copertina, pagine, etichette (principali e sotto-etichette dei blocchi), modal, lightbox |
 | `style.css` | Aspetto (palette, etichette, pagine, animazioni, grafico) |
 | `app.js` | Tutta la logica (un'unica IIFE) |
-| `plan.js` | Il piano giorno per giorno: `window.PLAN` → blocchi → scaglioni → giorni → task con prefisso `L` lezione, `P` progetto, `E` esercizio senza AI, `C` controllo con Claude, `R` diario |
+| `plan.js` | Il piano giorno per giorno: `window.PLAN` → blocchi → scaglioni → giorni → task con prefisso `L` lezione, `P` progetto, `E` esercizio senza AI, `C` controllo con Claude, `R` diario. Link alle fonti dopo il testo con `|url` (anche più di uno), mostrati come badge "Odin ↗", "MDN ↗"… |
 | `manifest.json`, `icon-*.png`, `icon.svg` | Web app e icona |
 
 ## Dati
@@ -42,6 +42,10 @@ Bullet journal digitale per seguire, giorno per giorno, il piano di studio di vi
 ## Stato
 
 Funzionante e pubblicato (21 nov 2026). In uso quotidiano da René.
+
+## Note sulle fonti
+
+- Lezioni di The Odin Project verificate sul sito il 21 nov 2026 (il corso aveva cambiato alcuni nomi: niente più "Computer Basics" e "Installation Overview"; "Arrays and Loops" ora è "Loops and Arrays"). Per MDN e Figma si usano link di ricerca, più stabili.
 
 ## Prossimi passi / idee in sospeso
 
