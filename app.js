@@ -278,7 +278,9 @@ function resumeLast() {
   ui.planSpread = sv.planSpread || 0; ui.histSpread = sv.histSpread || 0;
   setTimeout(() => go(s, { page: s === "trash" ? "content" : (ui.page[s] || "home"), view, keepScroll: true }), 650);
 }
-function pill(type) { return `<span class="pill ${type}">${TYPES[type] || ""}</span>`; }
+// Il tag del tipo di task è un'icona; il nome compare come tooltip (hover o clic)
+const TICON = { L: "📖", E: "✏️", P: "🛠️", C: "🔍", R: "📓" };
+function pill(type) { return `<span class="pill ico ${type}" data-tip="${TYPES[type] || ""}">${TICON[type] || "•"}</span>`; }
 function taskRow(id, o = {}) {
   const t = TASK[id]; if (!t) return "";
   const done = isDone(id);
@@ -380,9 +382,11 @@ function histSessions(all) {
   }).filter(sx => sx.shown.length);
 }
 function histHead(sx, cont) {
-  const d = parseYmd(sx.date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" });
-  const g = TASK[sx.ids[0]].day.g, span = sx.ids.length > 1 ? ` · ${fmtTime(sx.first)}–${fmtTime(sx.last)}` : "";
-  return `<div class="hs-head ${cont ? "cont" : ""}"><span class="hs-date">${d}${cont ? " (continued)" : ""}</span>${cont ? "" : `<span class="hs-meta">Week ${weekOf(g)} · ${sx.ids.length} ${sx.ids.length === 1 ? "task" : "tasks"} · ${sx.pts} pts${span}</span>`}</div>`;
+  const dt = parseYmd(sx.date), g = TASK[sx.ids[0]].day.g;
+  const wd = dt.toLocaleDateString("en-GB", { weekday: "long" }), dm = dt.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const e = D.entries[sx.date], tot = Math.max(sx.ids.length, e && e.tasks ? e.tasks.length : 0);
+  const span = sx.ids.length > 1 ? ` · ${fmtTime(sx.first)}–${fmtTime(sx.last)}` : "";
+  return `<div class="hs-head ${cont ? "cont" : ""}"><span class="hs-date">Week ${weekOf(g)} · ${wd} · ${dm}${cont ? " (continued)" : ""}</span>${cont ? "" : `<span class="hs-meta">${sx.ids.length}/${tot} tasks done, ${sx.pts} points${span}</span>`}</div>`;
 }
 function histRow(id) {
   const t = TASK[id];
@@ -1387,6 +1391,13 @@ function tick() {
 /* finestra: alla prima apertura prova a dare la misura di un quaderno */
 try { if (window.outerWidth > screen.availWidth * 0.97) { window.resizeTo(1320, 900); window.moveTo((screen.availWidth - 1320) / 2, (screen.availHeight - 900) / 2); } } catch (e) {}
 
+// Tooltip dei tag: clic apre/chiude (senza spuntare il task), clic fuori o uscita del mouse chiude
+document.addEventListener("click", e => {
+  const p = e.target.closest(".pill.ico");
+  document.querySelectorAll(".pill.tip-open").forEach(x => { if (x !== p) x.classList.remove("tip-open"); });
+  if (p) { e.preventDefault(); e.stopPropagation(); p.classList.toggle("tip-open"); }
+}, true);
+document.addEventListener("mouseout", e => { const p = e.target.closest && e.target.closest(".pill.tip-open"); if (p && !p.contains(e.relatedTarget)) p.classList.remove("tip-open"); });
 render();
 resumeLast();
 })();
