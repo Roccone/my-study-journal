@@ -79,35 +79,86 @@ const entryDates = () => Object.keys(D.entries).sort();
 const stepTasks = s => s.dayIdx.flatMap(g => DAYS[g].tasks);
 const stepComplete = s => stepTasks(s).every(isDone);
 
-function nextPlanDay(excludeDate) {
+/* ---------- sessioni: riporto dei task non fatti ----------
+   - Riporto <= 30 min: i task non finiti vanno all'inizio della sessione successiva.
+   - Riporto > 30 min: riporto + prossime 4 sessioni vengono ridistribuiti in sessioni da ~90 min
+     (in ordine di piano); se non bastano 4 sessioni il piano si allunga.
+   D.queue = sessioni già ridistribuite che vengono prima dei giorni del piano.
+   D.absorbed = giorni del piano assorbiti nella coda. D.movedFrom[id] = data della sessione d'origine. */
+const MIN = { R: 10, C: 10, L: 30, E: 20, P: 60 };
+const minsOf = id => { const t = TASK[id]; return !t ? 0 : (t.day.step.final ? 90 : (MIN[t.type] || 20)); };
+const SESSION_MIN = 90, CARRY_LIMIT = 30, WINDOW = 4;
+D.queue = D.queue || []; D.absorbed = D.absorbed || []; D.movedFrom = D.movedFrom || {};
+const byOrder = (a, b) => TASK[a].order - TASK[b].order;
+const sumMin = ids => ids.reduce((a, id) => a + minsOf(id), 0);
+
+function planPointer(extraAbsorbed = []) {
   let max = -1;
-  for (const [d, e] of Object.entries(D.entries)) {
-    if (d === excludeDate) continue;
-    e.planDays.forEach(g => { if (g > max) max = g; });
+  Object.values(D.entries).forEach(e => e.planDays.forEach(g => { if (g > max) max = g; }));
+  [...D.absorbed, ...extraAbsorbed].forEach(g => { if (g > max) max = g; });
+  return max + 1;
+}
+function nextPlanDay() { let g = planPointer(); while (g < DAYS.length && DAYS[g].tasks.every(isDone)) g++; return g; }
+const liveQueue = () => D.queue.map(q => q.filter(id => TASK[id] && !isDone(id))).filter(q => q.length);
+function planDaysFrom(g, n) {
+  const out = [];
+  while (out.length < n && g < DAYS.length) { if (!DAYS[g].tasks.every(isDone)) out.push({ tasks: [...DAYS[g].tasks], g }); g++; }
+  return out;
+}
+function upcoming(n, queue = liveQueue(), extraAbsorbed = []) {
+  const out = queue.slice(0, n).map(q => ({ tasks: q, queued: true }));
+  return out.concat(planDaysFrom(planPointer(extraAbsorbed), n - out.length));
+}
+function balance(items, n) {
+  const target = sumMin(items) / n, out = [[]];
+  let acc = 0;
+  items.forEach(id => {
+    const m = minsOf(id);
+    if (out[out.length - 1].length && out.length < n && acc + m / 2 > target * out.length) out.push([]);
+    out[out.length - 1].push(id); acc += m;
+  });
+  return out;
+}
+function freshPlan() {
+  const t = today(), last = entryDates().filter(d => d < t).pop(), q = liveQueue(), inQueue = new Set(q.flat());
+  const carry = last ? D.entries[last].tasks.filter(id => TASK[id] && !isDone(id) && !inQueue.has(id)).sort(byOrder) : [];
+  const carryMin = sumMin(carry), up = upcoming(WINDOW, q);
+  const notePart = carry.length ? `${carry.length} unfinished ${carry.length === 1 ? "task" : "tasks"} from ${relDay(last)} (about ${carryMin} min)` : "";
+  if (carryMin <= CARRY_LIMIT) {
+    const first = up[0];
+    const tasks = [...carry, ...(first ? first.tasks.filter(id => !carry.includes(id) && !isDone(id)) : [])];
+    return { tasks, carry, from: last, spread: false,
+      planDays: first && first.g != null ? [first.g] : [], absorbed: [],
+      newQueue: first && first.queued ? q.slice(1) : q,
+      note: carry.length ? `${notePart} ${carry.length === 1 ? "was" : "were"} added at the start of today.` : "" };
   }
-  let g = max + 1;
-  while (g < DAYS.length && DAYS[g].tasks.every(isDone)) g++;
-  return g;
+  const items = [...carry];
+  up.forEach(sx => sx.tasks.forEach(id => { if (!items.includes(id) && !isDone(id)) items.push(id); }));
+  const n = Math.max(WINDOW, Math.ceil(sumMin(items) / SESSION_MIN)), sessions = balance(items, n);
+  const qUsed = up.filter(sx => sx.queued).length, absorbed = up.filter(sx => sx.g != null).map(sx => sx.g);
+  return { tasks: sessions[0], carry, from: last, spread: true, planDays: [], absorbed,
+    newQueue: sessions.slice(1).concat(q.slice(qUsed)),
+    note: `${notePart} ${carry.length === 1 ? "was" : "were"} spread over the next ${sessions.length} sessions, about ${Math.round(sumMin(items) / sessions.length)} min each.` };
 }
-function freshTodayTasks() {
-  const t = today(), seen = new Set(), carry = [];
-  entryDates().filter(d => d < t).forEach(d => D.entries[d].tasks.forEach(id => {
-    if (TASK[id] && !isDone(id) && !seen.has(id)) { seen.add(id); carry.push(id); }
-  }));
-  carry.sort((a, b) => TASK[a].order - TASK[b].order);
-  const g = nextPlanDay(t), tasks = [...carry], planDays = [];
-  if (g < DAYS.length) { planDays.push(g); DAYS[g].tasks.forEach(id => { if (!seen.has(id)) tasks.push(id); }); }
-  return { tasks, planDays };
-}
-const todayTasks = () => (D.entries[today()] ? D.entries[today()].tasks : freshTodayTasks().tasks);
+const todayTasks = () => (D.entries[today()] ? D.entries[today()].tasks : freshPlan().tasks);
 function ensureTodayEntry() {
   const t = today();
   if (!D.entries[t]) {
-    const f = freshTodayTasks();
-    D.entries[t] = { tasks: f.tasks, planDays: f.planDays, startedAt: nowIso(), updatedAt: nowIso(), completedAt: null };
-    log("start-day", t);
+    const f = freshPlan();
+    D.entries[t] = { tasks: f.tasks, planDays: f.planDays, startedAt: nowIso(), updatedAt: nowIso(), completedAt: null, note: f.note || "" };
+    D.queue = f.newQueue; D.absorbed.push(...f.absorbed);
+    f.carry.forEach(id => { D.movedFrom[id] = f.from; });
+    log(f.spread ? "start-day-reflow" : "start-day", t);
   }
   return D.entries[t];
+}
+/* sessioni future (dopo quella di oggi), per "Next session →" */
+function futureSession(k) {
+  let list;
+  if (D.entries[today()]) list = upcoming(k);
+  else { const f = freshPlan(); list = upcoming(k, f.newQueue, [...f.absorbed, ...f.planDays]); }
+  const s = list[k - 1];
+  return s && s.tasks.length ? { tasks: s.tasks, g: TASK[s.tasks[0]].day.g, queued: !!s.queued } : null;
 }
 function setDone(id, val) {
   const t = today();
@@ -130,17 +181,13 @@ function setDone(id, val) {
   save();
 }
 function continueNextDay() {
-  const e = ensureTodayEntry(), g = nextPlanDay();
-  if (g >= DAYS.length) return false;
-  e.planDays.push(g);
-  DAYS[g].tasks.forEach(id => { if (!e.tasks.includes(id)) e.tasks.push(id); });
+  const e = ensureTodayEntry(), next = upcoming(1)[0];
+  if (!next) return false;
+  if (next.queued) D.queue = liveQueue().slice(1); else e.planDays.push(next.g);
+  next.tasks.forEach(id => { if (!e.tasks.includes(id)) e.tasks.push(id); });
   e.completedAt = null; e.updatedAt = nowIso();
-  log("continue", g); save();
+  log("continue", next.g ?? "queue"); save();
   return true;
-}
-function futureG(k) {
-  const base = D.entries[today()] ? nextPlanDay() : nextPlanDay(today()) + 1;
-  return base + k - 1;
 }
 function currentG() {
   const cur = todayTasks().find(id => !isDone(id));
@@ -209,13 +256,18 @@ function tlinks(t) {
   if (!t.links || !t.links.length) return "";
   return `<span class="tlinks">${t.links.map(u => `<a class="tlink" href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(linkLabel(u))} ↗</a>`).join("")}</span>`;
 }
+function movedTag(id) {
+  if (ui.section !== "today") return "";
+  const from = D.movedFrom[id] || (ui.carryPreview && ui.carryPreview.ids.includes(id) ? ui.carryPreview.from : null);
+  return from ? `<span class="moved-tag">from ${esc(relDay(from))}</span>` : "";
+}
 function pill(type) { return `<span class="pill ${type}">${TYPES[type] || ""}</span>`; }
 function taskRow(id, o = {}) {
   const t = TASK[id]; if (!t) return "";
   const done = isDone(id);
   const copy = t.type === "C" && !o.disabled ? `<button class="btn copy" data-copy="${t.day.step.n}">copia richiesta</button>` : "";
   return `<label class="task ${done ? "done" : ""}"><input type="checkbox" class="chk" data-task="${id}" ${done ? "checked" : ""} ${o.disabled ? "disabled" : ""}>
-    <span class="t">${pill(t.type)}${esc(t.text)}${tlinks(t)}${o.ctx ? `<br><small style="color:var(--faint)">Scaglione ${t.day.step.n} · day ${t.day.di + 1}</small>` : ""}</span>${copy}</label>`;
+    <span class="t">${pill(t.type)}${esc(t.text)}${tlinks(t)}${o.disabled ? "" : movedTag(id)}${o.ctx ? `<br><small style="color:var(--faint)">Scaglione ${t.day.step.n} · day ${t.day.di + 1}</small>` : ""}</span>${copy}</label>`;
 }
 
 /* --- Full plan --- */
@@ -393,14 +445,14 @@ function stepByN(n) { return STEPS.find(x => String(x.n) === String(n)); }
 const weekOf = g => Math.floor(g / 5) + 1;
 function viewStep() {
   const v = ui.view;
-  if (v.kind === "future") { const d = DAYS[futureG(v.k)]; return d && d.step; }
+  if (v.kind === "future") { const fs = futureSession(v.k); return fs && TASK[fs.tasks[0]].day.step; }
   const e = D.entries[v.date], tasks = v.date === today() ? todayTasks() : (e ? e.tasks : []);
   const first = tasks.find(id => !isDone(id)) || tasks[0];
   return first ? TASK[first].day.step : (e && DAYS[e.planDays[0]] ? DAYS[e.planDays[0]].step : null);
 }
 function viewG() {
   const v = ui.view;
-  if (v.kind === "future") return futureG(v.k);
+  if (v.kind === "future") { const fs = futureSession(v.k); return fs ? fs.g : 0; }
   const e = D.entries[v.date], tasks = v.date === today() ? todayTasks() : (e ? e.tasks : []);
   const first = tasks.find(id => !isDone(id)) || tasks[0];
   return first ? TASK[first].day.g : (e ? e.planDays[0] : 0);
@@ -431,26 +483,30 @@ function renderToday(L, R) {
   const nav = `<div class="nav-row">${homeBtn("today")}</div>`;
 
   if (v.kind === "future") {
-    const g = futureG(v.k), day = DAYS[g];
+    const fs = futureSession(v.k), g = fs ? fs.g : 0, day = fs ? DAYS[g] : null;
     L.innerHTML = nav + (day ? `<h2 class="h-title nq-title">Coming up</h2><div class="context-card">
       <div class="hand" style="font-size:24px">Scaglione ${day.step.n} · ${esc(day.step.title)}</div>
       <div style="color:var(--muted);font-size:12.5px">${esc(day.step.block.title)} — day ${day.di + 1} of ${day.step.days.length}</div>
       <div class="what">${esc(day.step.what)}</div></div><p class="empty">Notes are written on the day ✎</p>` : `<p class="empty">The plan ends here</p>`);
-    R.innerHTML = day ? dayNav() + dateRow(`Week ${weekOf(g)} · day ${g + 1} of the plan`, "pencil", "planned · not started") + `
+    R.innerHTML = day ? dayNav() + dateRow(`Week ${weekOf(g)} · upcoming session ${v.k}`, "pencil", fs.queued ? "rearranged · not started" : "planned · not started") + `
       <div class="tod-title"><h2 class="h-title">Tasks of the day</h2></div>
-      <div class="scroll" style="flex:1">${day.tasks.map(id => taskRow(id, { disabled: true })).join("")}</div>` : "";
+      <div class="meta"><span>about ${sumMin(fs.tasks)} min</span><span></span></div>
+      <div class="scroll" style="flex:1">${fs.tasks.map(id => taskRow(id, { disabled: true })).join("")}</div>` : "";
     return;
   }
 
   L.innerHTML = nav + notesPanel(v.date);
   const e = D.entries[v.date];
+  ui.carryPreview = null;
+  if (isTodayView && !e) { const f = freshPlan(); ui.carryPreview = { ids: f.carry, from: f.from }; }
   const tasks = isTodayView ? todayTasks() : (e ? e.tasks : []);
   const done = tasks.filter(isDone).length;
   const short = parseYmd(v.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" });
   const head = dayNav() + dateRow(`Week ${weekOf(viewG())} · ${short}`, e ? "active" : "pencil", !e && isTodayView ? "not started yet · tick something to begin" : "") + `
     <div class="tod-title"><h2 class="h-title">Tasks of the day</h2><span class="spacer"></span>${tasks.length ? `<button class="btn ter eye" id="allBtn">👁 ${ui.allTasks ? "hide tasks" : "all tasks"}</button>` : ""}</div>
     <div class="progress"><i style="width:${tasks.length ? done / tasks.length * 100 : 0}%"></i></div>
-    <div class="meta"><span>${done} / ${tasks.length} done</span><span></span></div>`;
+    <div class="meta"><span>${done} / ${tasks.length} done</span><span>about ${sumMin(tasks)} min</span></div>`
+    + (isTodayView ? (() => { const note = e ? e.note : freshPlan().note; return note ? `<div class="carry-note">↪ ${esc(note)}</div>` : ""; })() : "");
   let body = "";
   if (isTodayView) {
     const cur = tasks.find(id => !isDone(id));
@@ -459,10 +515,10 @@ function renderToday(L, R) {
       const c = TASK[cur];
       const anim = ui.lastCurrent !== cur; ui.lastCurrent = cur;
       body += `<div class="current-task ${anim ? "anim" : ""}"><div style="font-size:11.5px;color:var(--muted);margin-bottom:6px">Scaglione ${c.day.step.n} · ${esc(c.day.step.title)}</div>
-        <div class="row" style="align-items:flex-start"><input type="checkbox" class="chk" data-task="${cur}"><div class="t">${pill(c.type)}${esc(c.text)}${tlinks(c)}</div></div>
+        <div class="row" style="align-items:flex-start"><input type="checkbox" class="chk" data-task="${cur}"><div class="t">${pill(c.type)}${esc(c.text)}${tlinks(c)}${movedTag(cur)}</div></div>
         <div class="act">${c.type === "C" ? `<button class="btn" data-copy="${c.day.step.n}">📋 copia richiesta</button>` : ""}<button class="btn primary" data-complete="${cur}">✓ Done</button></div></div>`;
     } else if (tasks.length) {
-      const more = nextPlanDay() < DAYS.length;
+      const more = upcoming(1).length > 0;
       body += `<div class="celebrate"><div class="big">Day complete! お疲れ様 🎉</div>
         ${more ? `<p style="font-size:13px;margin:6px 0 10px">Still have energy? You can start the next day of the plan.</p><button class="btn primary" data-continue>Continue with the next day →</button>` : `<p>You finished the whole plan!</p>`}</div>`;
     } else body += `<p class="empty">Nothing planned</p>`;
@@ -476,7 +532,7 @@ function renderToday(L, R) {
 function dayNav() {
   const v = ui.view, isT = v.kind === "date" && v.date === today();
   const prevOff = v.kind === "date" && !entryDates().some(d => d < v.date);
-  const nextOff = v.kind === "future" ? futureG(v.k) + 1 >= DAYS.length : (isT && futureG(1) >= DAYS.length);
+  const nextOff = v.kind === "future" ? !futureSession(v.k + 1) : (isT && !futureSession(1));
   return `<div class="day-nav"><button class="btn sec" id="goTo">All sessions <span class="chev-d">⌄</span></button><span class="gap"></span>
     <button class="btn sec" id="dayPrev" ${prevOff ? "disabled" : ""}>← Previous session</button><button class="btn sec" id="dayNext" ${nextOff ? "disabled" : ""}>Next session →</button>${isT ? "" : `<button class="btn sec" id="goToday">Go today</button>`}</div>`;
 }
@@ -536,7 +592,7 @@ function renderHome(L, R) {
     </div>`;
     if (c && c.view) {
       const v = c.view;
-      label = v.kind === "future" ? `Back to day ${futureG(v.k) + 1} of the plan →` : (v.date === today() ? "Back to today's session →" : `Back to session · ${relDay(v.date)} →`);
+      label = v.kind === "future" ? `Back to upcoming session ${v.k} →` : (v.date === today() ? "Back to today's session →" : `Back to session · ${relDay(v.date)} →`);
     } else label = "Next session →";
   } else {
     body = homeDesc(s) + (s === "plan" ? `<div class="home-backup">Backup: <button class="btn ter" id="exportBtn">Export</button>·<button class="btn ter" id="importBtn">Import</button>·<button class="btn ter" id="resetBtn">Reset</button><input type="file" id="importFile" accept="application/json" hidden></div>` : "");
