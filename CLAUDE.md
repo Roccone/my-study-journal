@@ -44,7 +44,7 @@ Bullet journal digitale per seguire, giorno per giorno, il piano di studio di vi
 
 ## Stato
 
-Funzionante e pubblicato (21 nov 2026). In uso quotidiano da René.
+Funzionante e pubblicato (21 nov 2026). In uso quotidiano da René. Risposte agli esercizi pronte su `next-fixes` (24 nov), da pubblicare su `main` dopo l'ok di René sugli screenshot.
 
 ## Note sulle fonti
 
@@ -62,20 +62,19 @@ Specifiche anche nella pagina Notion del progetto, sezione "Da migliorare".
    - Filtri = pulsanti terziari (`.ftag`), solo testo in grassetto, senza sfondo. Normale = marrone chiaro `#b39c83`; selezionato = viola (`--brown`) + linea sotto.
    - La sezione Notes non ha questi filtri (ha già due colonne Notes / Questions).
 
-## Prossima fase: risposte agli esercizi (da costruire, planning fatto il 24 nov 2026)
+## Risposte agli esercizi (costruito il 24 nov 2026 su `next-fixes`, in attesa dell'ok di René per `main`)
 
 Prima versione semplice dell'idea Notion "nuovo tipo di nota Esercizio" (il controllo e il feedback di Claude restano per dopo: serve un server).
 
-- **Dove si scrive:** ogni task ✏️ esercizio (`E`, 66 nel piano) ha nella sua card un campo "Your answer…" + bottone "Save answer". Facoltativo (alcuni esercizi si fanno nel terminale).
-- **Nota "exercise":** nuovo tipo di nota (`type: "exercise"`, con l'id del task). Una sola per esercizio: risalvare aggiorna la stessa nota. Data = giorno in cui si scrive, così entra nelle note di quella sessione.
-- **Aspetto:** icona ✏️; testo dell'esercizio in alto come il titolo di una domanda (non modificabile), risposta sotto. Doppio clic sulla risposta = modifica; cestino e ripristino come le altre note. A capo mantenuti, link cliccabili.
-- **Filtri Daily tasks:** "Filter: All notes · Notes · Questions · Exercises" (stesse regole e stile `.ftag` dei filtri attuali).
-- **Sezione Notes:** gli esercizi vanno nella colonna 📝 Notes, con un piccolo filtro sopra la colonna "All · Notes · Exercises".
-- **History:** compaiono con le altre note del giorno.
-- **Da confermare con René prima del codice** (proposte di Claude tra parentesi):
-  1. "Save answer" spunta anche il task? (no, separati: si può salvare una bozza)
-  2. Risposte in font monospaziato, visto che spesso c'è codice? (sì)
-  3. Con 3 tipi, la riga filtri mostra solo i tipi presenti quel giorno o sempre tutti e 4? (solo quelli presenti)
+- **Dove si scrive:** il task ✏️ esercizio (`E`) quando è il task corrente ha nella card un campo "Your answer…" + "</> Code" + "Save answer" (+ "saved HH:MM" se c'è già). Facoltativo. La bozza resta se la pagina si ridisegna (`ui.exDraft`).
+- **Nota "exercise":** `{ type: "exercise", taskId, text: testo dell'esercizio (copiato), answer, code }`. Una sola nota viva per esercizio: risalvare aggiorna la stessa (se quella vecchia è nel cestino se ne crea una nuova). Data = giorno in cui si scrive.
+- **"Save answer" NON spunta il task** (deciso con René): si può salvare una bozza.
+- **Font:** monospaziato solo se è acceso "</> Code" (scelto da René, per risposta; niente riconoscimento automatico). In modalità Code: Invio = a capo, ⌘/Ctrl+Invio = salva. Senza Code: Invio salva, Shift+Invio a capo (come le altre note).
+- **Card:** icona ✏️, testo dell'esercizio come titolo (marrone, non modificabile), risposta sotto. Doppio clic ovunque sulla card o ✍🏻 = modifica la risposta (con il toggle Code); clic fuori o Invio salva, Esc annulla, risposta svuotata = resta la vecchia. Cestino, ripristino ed eliminazione come le altre note.
+- **Filtri Daily tasks:** compaiono solo i tipi presenti quel giorno (deciso con René): es. "All notes · Notes · Exercises". Se il tipo selezionato sparisce si torna su "All notes".
+- **Sezione Notes e Cestino:** gli esercizi stanno nella colonna 📝 Notes; nella sezione Notes c'è il filtro "All · Notes · Exercises" sopra la colonna (`ui.nfCol`).
+- **History:** nel riepilogo della sessione "+ 1 note · 1 question · 1 exercise answer".
+- **Limite noto:** il campo risposta è solo sul task corrente; se si spunta l'esercizio senza rispondere, la risposta non si può più aggiungere (per ora).
 
 ## Prossimi passi / idee in sospeso
 

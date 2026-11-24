@@ -219,7 +219,7 @@ const ui = {
   open: false, section: null, view: { kind: "date", date: today() },
   composer: null, todayTag: "all", allTasks: false, editing: null, answering: null,
   page: { plan: "home", today: "home", notes: "home", history: "home" }, hq: "", hp: null, histSpread: 0, cameFrom: {}, editingHome: null, planSpread: 0, pp: null, pendingBlock: null,
-  planOpen: new Set(), planScrolled: false, lastCurrent: null, allAnim: false, selected: null, editText: null, editImages: [], imgTarget: null, lastRange: null, tf: { date: null, q: "" }, nf: { date: null, q: "" }, scroll: {}, lastSection: null, flipping: false
+  planOpen: new Set(), planScrolled: false, lastCurrent: null, allAnim: false, selected: null, editText: null, editImages: [], imgTarget: null, lastRange: null, tf: { date: null, q: "" }, nf: { date: null, q: "" }, nfCol: "all", exDraft: null, ansCode: false, scroll: {}, lastSection: null, flipping: false
 };
 const ORDER = { plan: 0, today: 1, notes: 2, history: 3, trash: 4 };
 
@@ -378,7 +378,7 @@ function histSessions(all) {
     const shown = q ? ids.filter(id => TASK[id].text.toLowerCase().includes(q)) : ids;
     const notes = liveNotes().filter(n => n.date === date);
     return { date, ids, shown, pts: ids.reduce((a, id) => a + pts(id), 0), first: D.done[ids[0]].at, last: D.done[ids[ids.length - 1]].at,
-      nn: notes.filter(n => n.type === "note").length, nq: notes.filter(n => n.type === "question").length };
+      nn: notes.filter(n => n.type === "note").length, nq: notes.filter(n => n.type === "question").length, ne: notes.filter(n => n.type === "exercise").length };
   }).filter(sx => sx.shown.length);
 }
 function histHead(sx, cont) {
@@ -414,7 +414,7 @@ function histPaginate(body) {
     put(`<div class="hs-start"></div>` + histHead(sx));
     dateSpread[sx.date] = Math.floor((pages.length - 1) / 2);
     sx.shown.forEach(id => put(histRow(id), sx));
-    const extra = [sx.nn ? `${sx.nn} ${sx.nn === 1 ? "note" : "notes"}` : "", sx.nq ? `${sx.nq} ${sx.nq === 1 ? "question" : "questions"}` : ""].filter(Boolean).join(" · ");
+    const extra = [sx.nn ? `${sx.nn} ${sx.nn === 1 ? "note" : "notes"}` : "", sx.nq ? `${sx.nq} ${sx.nq === 1 ? "question" : "questions"}` : "", sx.ne ? `${sx.ne} ${sx.ne === 1 ? "exercise answer" : "exercise answers"}` : ""].filter(Boolean).join(" · ");
     put(`<div class="hs-foot">${extra ? "+ " + extra : ""}</div>`);
   });
   if (list.length) put(`<p class="hs-end">— the first page of your journal —</p>`);
@@ -447,7 +447,10 @@ function histFlipTo(target) {
 }
 
 /* --- Today --- */
-function noteCounts(list) { return { n: list.some(x => x.type === "note"), q: list.some(x => x.type === "question") }; }
+// The 3 kinds of notes, in the order they appear in the filter rows
+const NOTE_TYPES = ["note", "question", "exercise"];
+// Which kinds are present in a list of notes (e.g. ["note", "exercise"])
+function typesIn(list) { return NOTE_TYPES.filter(t => list.some(x => x.type === t)); }
 function notesPanel(date) {
   const isT = date === today();
   const items = liveNotes().filter(n => n.date === date).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -464,13 +467,15 @@ function notesPanel(date) {
   // Add buttons: secondary (brown) buttons with only the icon; the label shows as a tooltip on hover (data-tip, see style.css)
   if (isT) html += `<div class="add-row"><button class="btn add" data-add="note" data-tip="New note" aria-label="New note">+ 📝</button><button class="btn add" data-add="question" data-tip="New question" aria-label="New question">+ ❓</button></div>`;
   // The filter row is ALWAYS drawn (even with no notes), so nothing jumps down when the first note of a new type is added
-  const c = noteCounts(items), both = c.n && c.q;
-  // With fewer than 2 types there is nothing to filter: we always show everything, so a filter left on "Notes"/"Questions" goes back to "all"
-  if (!both) ui.todayTag = "all";
+  // Only the kinds present on this day get a filter (decided with René: no empty filters)
+  const present = typesIn(items), many = present.length >= 2;
+  // With fewer than 2 kinds there is nothing to filter. Also, if the selected kind is no longer there
+  // (e.g. its last note went to the trash), we go back to "all" so the list never looks empty by mistake
+  if (!many || !present.includes(ui.todayTag)) ui.todayTag = "all";
   const tag = ui.todayTag;
-  const labels = { all: "All notes", note: "Notes", question: "Questions" };
-  const tags = both
-    ? ["all", "note", "question"].map(t => `<button class="ftag ${tag === t ? "on" : ""}" data-tag="${t}">${labels[t]}</button>`).join("")
+  const labels = { all: "All notes", note: "Notes", question: "Questions", exercise: "Exercises" };
+  const tags = many
+    ? ["all", ...present].map(t => `<button class="ftag ${tag === t ? "on" : ""}" data-tag="${t}">${labels[t]}</button>`).join("")
     // Only one type (or none): "All notes" is shown but disabled — same look as the normal state, just not clickable
     : `<button class="ftag" disabled>${labels.all}</button>`;
   html += `<div class="ftags"><span class="ftags-lab">Filter:</span>${tags}</div>`;
@@ -520,7 +525,36 @@ function thumbs(ids, editable) {
   if (!ids || !ids.length) return "";
   return `<div class="thumbs">${ids.map(id => `<span class="th"><img class="thumb" data-img="${id}" alt="">${editable ? `<button class="th-x" data-rmimg="${id}" title="Remove image">×</button>` : ""}</span>`).join("")}</div>`;
 }
+// The answer of an exercise: monospace font only if René switched on "</> Code" for it
+function exAnswerHtml(n) { return `<div class="ans"><div class="atext ${n.code ? "code" : ""}">${linkify(n.answer || "")}</div></div>`; }
+// The answer box used both on the task card and when editing an exercise note
+function exAnswerBox(attrs, text, code) {
+  return `<textarea ${attrs} class="${code ? "code" : ""}" placeholder="Your answer…" spellcheck="${code ? "false" : "true"}">${esc(text)}</textarea>`;
+}
+// The "</> Code" switch. aria-pressed tells screen readers (and our CSS) whether it is on
+function codeToggle(attr, on) { return `<button class="code-tg ${on ? "on" : ""}" ${attr} aria-pressed="${on}" title="Show the answer as code (monospace font)">&lt;/&gt; Code</button>`; }
+
+// Exercise notes have their own card: the exercise text is a fixed title (not editable), the answer goes below
+function exerciseCardHtml(n, o) {
+  const sel = ui.selected === n.id ? "selected" : "";
+  const ic = `<div class="ic">✏️</div>`, title = `<div class="qtext">${esc(n.text)}</div>`;
+  if (o.trash) {
+    return `<div class="card trash-card ex ${sel}" data-card="${n.id}">${ic}<div class="body">${title}${exAnswerHtml(n)}
+      <div class="when">written ${relDay(n.date).toLowerCase()} · deleted at ${fmtTime(n.deletedAt)}</div></div>
+      <div class="tools wide"><button class="btn sec" data-restore="${n.id}">Ripristina</button><button class="btn ter danger" data-purge="${n.id}">Elimina</button></div></div>`;
+  }
+  let ans;
+  if (ui.answering === n.id) {
+    ans = `<div class="ans">${exAnswerBox(`data-answer="${n.id}"`, n.answer || "", ui.ansCode)}
+      <div class="edit-act">${codeToggle("data-ans-code", ui.ansCode)}<span class="spacer"></span><button class="btn ter" data-cancel>Cancel</button><button class="btn primary" data-save-answer="${n.id}">Save answer</button></div>
+      <div class="hint">${ui.ansCode ? "⌘ Enter to save · Enter for a new line" : "Enter to save · Shift+Enter for a new line"}</div></div>`;
+  } else ans = exAnswerHtml(n);
+  const tools = `<div class="tools"><button title="Edit the answer" data-answer-btn="${n.id}">✍🏻</button>${o.goto ? `<button title="Open the journal page" data-goto="${n.id}">📖</button>` : ""}</div>`;
+  return `<div class="card ex ${sel}" data-card="${n.id}">${ic}<div class="body">${title}${ans}<div class="when">${fmtTime(n.createdAt)}${n.updatedAt !== n.createdAt ? " · edited" : ""}</div></div>${tools}<button class="trash-btn" data-trash="${n.id}" title="Move to trash">🗑</button></div>`;
+}
+
 function cardHtml(n, o = {}) {
+  if (n.type === "exercise") return exerciseCardHtml(n, o);
   const isQ = n.type === "question";
   const ic = `<div class="ic">${isQ ? "❓" : "📝"}</div>`;
   const sel = ui.selected === n.id ? "selected" : "";
@@ -616,6 +650,7 @@ function renderToday(L, R) {
       const anim = ui.lastCurrent !== cur; ui.lastCurrent = cur;
       body += `<div class="current-task ${anim ? "anim" : ""}"><div style="font-size:11.5px;color:var(--muted);margin-bottom:6px">Scaglione ${c.day.step.n} · ${esc(c.day.step.title)}</div>
         <div class="row" style="align-items:flex-start"><input type="checkbox" class="chk" data-task="${cur}"><div class="t">${pill(c.type)}${esc(c.text)}${tlinks(c)}${movedTag(cur)}</div></div>
+        ${c.type === "E" ? exerciseField(cur) : ""}
         <div class="act">${c.type === "C" ? `<button class="btn" data-copy="${c.day.step.n}">📋 copia richiesta</button>` : ""}<button class="btn primary" data-complete="${cur}">✓ Done</button></div></div>`;
     } else if (tasks.length) {
       const more = upcoming(1).length > 0;
@@ -627,6 +662,44 @@ function renderToday(L, R) {
   }
   if (ui.allTasks && tasks.length) body += `<div class="all-panel ${ui.allAnim ? "anim" : ""}"><h4>All tasks of the day</h4>${tasks.map(id => taskRow(id)).join("")}</div>`;
   R.innerHTML = head + `<div class="scroll" data-keep="todayR" style="flex:1">${body}</div>`;
+}
+
+/* --- Exercise answers --- */
+// The (only) live exercise note of a task, if it exists. Notes in the trash don't count:
+// saving again after trashing one creates a new note.
+const exerciseNote = taskId => liveNotes().find(n => n.type === "exercise" && n.taskId === taskId);
+// What's in the answer box right now: the draft being typed (kept in ui.exDraft so a redraw of
+// the page doesn't erase it), otherwise the saved answer, otherwise empty
+function exerciseDraft(taskId) {
+  if (ui.exDraft && ui.exDraft.id === taskId) return ui.exDraft;
+  const n = exerciseNote(taskId);
+  return { id: taskId, text: n ? n.answer : "", code: n ? !!n.code : false };
+}
+// The answer field shown inside the card of a ✏️ exercise. Optional: some exercises are done in the terminal
+function exerciseField(taskId) {
+  const d = exerciseDraft(taskId), n = exerciseNote(taskId);
+  const saved = n ? `<span class="ex-saved">saved ${fmtTime(n.updatedAt)}</span>` : "";
+  return `<div class="ex-field">${exAnswerBox(`id="exAns" data-ex="${taskId}"`, d.text, d.code)}
+    <div class="ex-act">${codeToggle('id="exCode"', d.code)}${saved}<span class="spacer"></span><button class="btn sec" id="exSave">Save answer</button></div>
+    <div class="hint">${d.code ? "⌘ Enter to save · Enter for a new line" : "Enter to save · Shift+Enter for a new line"} · optional</div></div>`;
+}
+// Saves the answer as an "exercise" note. One note per exercise: saving again updates the same note.
+// It does NOT tick the task (decided with René): you can save a draft and tick it later.
+function saveExercise() {
+  const ta = $("#exAns"); if (!ta) return;
+  const taskId = ta.dataset.ex, text = ta.value.replace(/\s+$/, ""), code = ta.classList.contains("code");
+  if (!text.trim()) { toast("Write your answer first"); return; }
+  let n = exerciseNote(taskId);
+  if (n) {
+    if (n.answer === text && !!n.code === code) { toast("Nothing changed"); return; }
+    n.answer = text; n.code = code; n.answeredAt = n.updatedAt = nowIso(); log("edit-exercise", n.id);
+  } else {
+    const id = addNote("exercise", TASK[taskId].text); // the exercise text is copied, so the note still makes sense even if plan.js changes
+    n = noteById(id); n.taskId = taskId; n.answer = text; n.code = code; n.answeredAt = nowIso();
+  }
+  save();
+  ui.exDraft = null; ui.todayTag = "all"; // like after adding a note: show everything so the new one is visible
+  render(); toast("Answer saved ✏️");
 }
 
 function dayNav() {
@@ -753,14 +826,18 @@ function renderNotesLists() {
   const q = ui.nf.q.trim().toLowerCase();
   const f = n => (!ui.nf.date || n.date === ui.nf.date) && (!q || (plain(n.text) + " " + (n.answer || "")).toLowerCase().includes(q));
   const sorted = liveNotes().filter(f).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const notes = sorted.filter(n => n.type === "note"), qs = sorted.filter(n => n.type === "question");
+  // Left column = notes + exercises. The small filter "All · Notes · Exercises" picks which ones
+  const col = ui.nfCol || "all";
+  const leftAll = sorted.filter(n => n.type === "note" || n.type === "exercise");
+  const notes = leftAll.filter(n => col === "all" || n.type === col), qs = sorted.filter(n => n.type === "question");
+  const colTags = `<div class="ftags col-ftags">${[["all", "All"], ["note", "Notes"], ["exercise", "Exercises"]].map(([t, l]) => `<button class="ftag ${col === t ? "on" : ""}" data-col-tag="${t}">${l}</button>`).join("")}</div>`;
   const grouped = list => {
     if (!list.length) return `<p class="empty">${liveNotes().length ? "Nothing matches" : "Nothing here yet"}</p>`;
     let html = "", last = null;
     list.forEach(n => { if (n.date !== last) { html += `<div class="sep"><span>${relDay(n.date)}</span></div>`; last = n.date; } html += cardHtml(n, { goto: true }); });
     return `<div class="cards">${html}</div>`;
   };
-  L.innerHTML = `<div class="col-title">📝 Notes <small>${notes.length}</small></div><div class="scroll" data-keep="nL" style="flex:1">${grouped(notes)}</div>`;
+  L.innerHTML = `<div class="col-title">📝 Notes <small>${notes.length}</small></div>${colTags}<div class="scroll" data-keep="nL" style="flex:1">${grouped(notes)}</div>`;
   R.innerHTML = `<div class="col-title">❓ Questions <small>${qs.length}</small></div><div class="scroll" data-keep="nR" style="flex:1">${grouped(qs)}</div>`;
   document.querySelectorAll("[data-keep]").forEach(el => { if (ui.scroll[el.dataset.keep] != null) el.scrollTop = ui.scroll[el.dataset.keep]; });
 }
@@ -788,7 +865,7 @@ function renderTrashLists() {
     list.forEach(n => { const d = delDate(n); if (d !== last) { html += `<div class="sep"><span>Deleted ${relDay(d).replace(/^(Today|Yesterday)$/, m => m.toLowerCase())}</span></div>`; last = d; } html += cardHtml(n, { trash: true }); });
     return `<div class="cards">${html}</div>`;
   };
-  const notes = sorted.filter(n => n.type === "note"), qs = sorted.filter(n => n.type === "question");
+  const notes = sorted.filter(n => n.type !== "question"), qs = sorted.filter(n => n.type === "question");
   L.innerHTML = `<div class="col-title">📝 Notes <small>${notes.length}</small></div><div class="scroll" data-keep="tL" style="flex:1">${grouped(notes)}</div>`;
   R.innerHTML = `<div class="col-title">❓ Questions <small>${qs.length}</small></div><div class="scroll" data-keep="tR" style="flex:1">${grouped(qs)}</div>`;
   document.querySelectorAll("[data-keep]").forEach(el => { if (ui.scroll[el.dataset.keep] != null) el.scrollTop = ui.scroll[el.dataset.keep]; });
@@ -805,10 +882,10 @@ function render0Tabs() {
 
 /* modal di conferma */
 function confirmPurge(n) {
-  const m = $("#modal"), kind = n.type === "question" ? "questa domanda" : "questa nota";
+  const m = $("#modal"), kind = { question: "questa domanda", exercise: "questa risposta all'esercizio" }[n.type] || "questa nota";
   m.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
     <h3>Sei sicuro che vuoi eliminare definitivamente ${kind}?</h3>
-    <div class="preview-card"><div class="preview" id="mPreview">${richText(n.text, n)}${n.type === "question" && n.answer ? `<div class="p-ans">${linkify(n.answer)}</div>` : ""}</div></div>
+    <div class="preview-card"><div class="preview" id="mPreview">${richText(n.text, n)}${n.type !== "note" && n.answer ? `<div class="p-ans ${n.code ? "code" : ""}">${linkify(n.answer)}</div>` : ""}</div></div>
     <div class="m-act"><button class="btn primary" id="mKeep">No, mantieni</button><button class="btn ter danger" id="mPurge">Elimina definitivamente</button></div></div>`;
   m.hidden = false;
   m.dataset.id = n.id;
@@ -1167,11 +1244,14 @@ document.addEventListener("click", e => {
   if (ds.copy) { e.preventDefault(); copyRequest(ds.copy); return; }
   if (ds.add) { ui.composer = { type: ds.add, text: "", answer: null, images: [] }; render(); return; }
   if (ds.tag) { ui.todayTag = ds.tag; render(); return; }
+  if (ds.colTag) { ui.nfCol = ds.colTag; renderNotesLists(); return; }
   if (ds.rmimg) { removeImage(ds.rmimg); return; }
   if (ds.editBtn) { ui.editing = ds.editBtn; ui.editText = null; ui.answering = null; rerenderKeep(); setTimeout(() => { const ed = $(`[data-edit="${ds.editBtn}"]`); if (ed) caretEnd(ed); }, 20); return; }
-  if (ds.answerBtn) { ui.answering = ds.answerBtn; ui.editing = null; rerenderKeep(); focusSoon(`[data-answer="${ds.answerBtn}"]`); return; }
+  if (ds.answerBtn) { startAnswering(ds.answerBtn); return; }
+  if (ds.ansCode !== undefined) { ui.ansCode = !ui.ansCode; setCodeLook(el, $(`[data-answer="${ui.answering}"]`), ui.ansCode); return; }
   if (ds.cancel !== undefined) { cancelEditImages(); ui.editing = null; ui.answering = null; rerenderKeep(); return; }
   if (ds.saveEdit) { saveEditing(); rerenderKeep(); return; }
+  if (ds.saveAnswer && noteById(ds.saveAnswer)?.type === "exercise") { saveAnswering(); rerenderKeep(); return; }
   if (ds.saveAnswer) {
     const n = noteById(ds.saveAnswer), v = $(`[data-answer="${ds.saveAnswer}"]`).value.trim();
     if (n) { n.answer = v; n.answeredAt = v ? nowIso() : null; n.updatedAt = nowIso(); log("answer", n.id); save(); }
@@ -1179,7 +1259,7 @@ document.addEventListener("click", e => {
   }
   if (ds.trash) {
     const n = noteById(ds.trash);
-    if (n) { n.deletedAt = nowIso(); log("trash", n.id); save(); ui.selected = null; refreshLists(); toast(n.type === "question" ? "Domanda spostata nel cestino" : "Nota spostata nel cestino"); }
+    if (n) { n.deletedAt = nowIso(); log("trash", n.id); save(); ui.selected = null; refreshLists(); toast({ question: "Domanda spostata nel cestino", exercise: "Esercizio spostato nel cestino" }[n.type] || "Nota spostata nel cestino"); }
     return;
   }
   if (ds.restore) {
@@ -1213,6 +1293,12 @@ document.addEventListener("click", e => {
     case "homePen": ui.editingHome = ui.section; render(); setTimeout(() => { const t = $("#homeEdit"); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 20); break;
     case "homeCancel": ui.editingHome = null; render(); break;
     case "homeSave": { const v = $("#homeEdit").value.trim(); D.home = D.home || {}; D.home[ui.section] = v || HOME[ui.section].def; log("edit-home", ui.section); save(); ui.editingHome = null; render(); break; }
+    case "exSave": saveExercise(); break;
+    case "exCode": {
+      const ta = $("#exAns"), on = !ta.classList.contains("code");
+      ui.exDraft = { id: ta.dataset.ex, text: ta.value, code: on };
+      setCodeLook(el, ta, on); ta.focus(); break;
+    }
     case "allBtn": ui.allTasks = !ui.allTasks; ui.allAnim = ui.allTasks; render(); ui.allAnim = false; break;
     case "cCancel": imgIds(val($("#cText"))).forEach(id => IDB.del(id)); ui.composer = null; render(); break;
     case "cImg": ui.imgTarget = "composer"; $("#imgFile").click(); break;
@@ -1278,6 +1364,20 @@ document.addEventListener("click", e => {
       break;
   }
 });
+// Opens the answer box of a question or exercise card, with the cursor at the end
+function startAnswering(id) {
+  const n = noteById(id); if (!n) return;
+  ui.answering = id; ui.editing = null; ui.ansCode = !!n.code;
+  rerenderKeep(); focusSoon(`[data-answer="${id}"]`);
+}
+// Switches the "</> Code" look on or off without redrawing the page (so the text and cursor stay where they are)
+function setCodeLook(btn, ta, on) {
+  btn.classList.toggle("on", on); btn.setAttribute("aria-pressed", on);
+  if (!ta) return;
+  ta.classList.toggle("code", on); ta.spellcheck = !on;
+  const hint = ta.parentElement.querySelector(".hint");
+  if (hint) hint.textContent = hint.textContent.replace(/^.*?(?= · optional|$)/, on ? "⌘ Enter to save · Enter for a new line" : "Enter to save · Shift+Enter for a new line");
+}
 function renderNotesHead() { if (ui.section === "notes") renderNotes($("#left"), $("#right")); }
 function rerenderKeep() { if (ui.section === "notes") renderNotesLists(); else render(); }
 function focusSoon(sel) { setTimeout(() => { const el = $(sel); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 20); }
@@ -1291,6 +1391,7 @@ document.addEventListener("change", e => {
 document.addEventListener("input", e => {
   if (e.target.id === "cText" && ui.composer) ui.composer.text = val(e.target);
   if (e.target.id === "cAns" && ui.composer) ui.composer.answer = e.target.value;
+  if (e.target.id === "exAns") ui.exDraft = { id: e.target.dataset.ex, text: e.target.value, code: e.target.classList.contains("code") };
   if (e.target.dataset && e.target.dataset.edit) ui.editText = val(e.target);
   if (e.target.id === "hQ") { ui.hq = e.target.value; const x = $("#hQClear"); if (x) x.hidden = !ui.hq; ui.hp = null; ui.histSpread = 0; fillHistory(); }
   if (e.target.id === "tfQ") { ui.tf.q = e.target.value; const x = $("#tfQClear"); if (x) x.hidden = !ui.tf.q; renderTrashLists(); }
@@ -1298,8 +1399,14 @@ document.addEventListener("input", e => {
 });
 document.addEventListener("keydown", e => {
   if (e.target.id === "nfDate" && e.key === "Enter") applyTypedFilter(e.target);
+  // Code answers: Enter = new line (code has many lines), ⌘/Ctrl + Enter = save
+  if (e.key === "Enter" && e.target.tagName === "TEXTAREA" && e.target.classList.contains("code")) {
+    if (e.metaKey || e.ctrlKey) { e.preventDefault(); e.target.id === "exAns" ? saveExercise() : $(`[data-save-answer="${e.target.dataset.answer}"]`).click(); }
+    return;
+  }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
     const t = e.target.closest ? (e.target.closest(".editor") || e.target) : e.target;
+    if (t.id === "exAns") { e.preventDefault(); saveExercise(); return; }
     if (t.id === "cText" || t.id === "cAns") { e.preventDefault(); $("#cSave").click(); }
     else if (t.id === "homeEdit") { e.preventDefault(); $("#homeSave").click(); }
     else if (t.dataset && t.dataset.edit) { e.preventDefault(); $(`[data-save-edit="${t.dataset.edit}"]`).click(); }
@@ -1329,7 +1436,17 @@ function saveEditing() {
 }
 // Same idea for the answer under a question; an emptied answer keeps the old one
 function saveAnswering() {
-  const id = ui.answering, n = noteById(id), ta = $(`[data-answer="${id}"]`), v = ta ? ta.value.trim() : "";
+  const id = ui.answering, n = noteById(id), ta = $(`[data-answer="${id}"]`);
+  if (n && n.type === "exercise") {
+    // Code keeps its indentation at the start, so we only trim the end
+    const v = ta ? ta.value.replace(/\s+$/, "") : "";
+    if (v.trim() && (v !== (n.answer || "") || !!n.code !== !!ui.ansCode)) {
+      n.answer = v; n.code = !!ui.ansCode; n.answeredAt = n.updatedAt = nowIso(); log("edit-exercise", n.id); save();
+      if (ui.exDraft && ui.exDraft.id === n.taskId) ui.exDraft = null; // the task card will show the new answer
+    }
+    ui.answering = null; return;
+  }
+  const v = ta ? ta.value.trim() : "";
   if (n && v && v !== (n.answer || "")) { n.answer = v; n.answeredAt = nowIso(); n.updatedAt = nowIso(); log("answer", n.id); save(); }
   ui.answering = null;
 }
@@ -1380,8 +1497,8 @@ document.addEventListener("dblclick", e => {
   const id = card.dataset.card, n = noteById(id);
   if (!n) return;
   // Double-click on the answer of a question → edit the answer
-  if (n.type === "question" && e.target.closest(".ans")) {
-    ui.answering = id; ui.editing = null; rerenderKeep(); focusSoon(`[data-answer="${id}"]`); return;
+  if ((n.type === "question" && e.target.closest(".ans")) || n.type === "exercise") {
+    getSelection().removeAllRanges(); startAnswering(id); return;
   }
   // Otherwise → edit the note/question text, with the cursor where you clicked.
   // We remember the position as "number of characters" because the card is redrawn as an editor.
