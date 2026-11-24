@@ -50,9 +50,7 @@ Funzionante e pubblicato (21 nov 2026). In uso quotidiano da René.
 
 - Lezioni di The Odin Project verificate sul sito il 21 nov 2026 (il corso aveva cambiato alcuni nomi: niente più "Computer Basics" e "Installation Overview"; "Arrays and Loops" ora è "Loops and Arrays"). Per MDN e Figma si usano link di ricerca, più stabili.
 
-## Next fixes (fatti il 24 nov 2026, branch `next-fixes`, NON ancora su `main`)
-
-Pubblicare su `main` solo dopo che René conferma di aver fatto il backup (Export nella home del Full plan).
+## Next fixes (fatti e pubblicati il 24 nov 2026, dopo il backup di René)
 
 Specifiche anche nella pagina Notion del progetto, sezione "Da migliorare".
 
