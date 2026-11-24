@@ -44,7 +44,7 @@ Bullet journal digitale per seguire, giorno per giorno, il piano di studio di vi
 
 ## Stato
 
-Funzionante e pubblicato (21 nov 2026). In uso quotidiano da René. Risposte agli esercizi pronte su `next-fixes` (24 nov), da pubblicare su `main` dopo l'ok di René sugli screenshot.
+Funzionante e pubblicato (21 nov 2026). In uso quotidiano da René. Risposte agli esercizi pubblicate su `main` il 24 nov 2026, dopo l'ok di René sugli screenshot.
 
 ## Note sulle fonti
 
@@ -62,7 +62,7 @@ Specifiche anche nella pagina Notion del progetto, sezione "Da migliorare".
    - Filtri = pulsanti terziari (`.ftag`), solo testo in grassetto, senza sfondo. Normale = marrone chiaro `#b39c83`; selezionato = viola (`--brown`) + linea sotto.
    - La sezione Notes non ha questi filtri (ha già due colonne Notes / Questions).
 
-## Risposte agli esercizi (costruito il 24 nov 2026 su `next-fixes`, in attesa dell'ok di René per `main`)
+## Risposte agli esercizi (fatto e pubblicato il 24 nov 2026)
 
 Prima versione semplice dell'idea Notion "nuovo tipo di nota Esercizio" (il controllo e il feedback di Claude restano per dopo: serve un server).
 
