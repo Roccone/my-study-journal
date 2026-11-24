@@ -184,9 +184,23 @@ input,textarea{font:inherit;color:inherit}
 .composer .lab{font-weight:800;font-size:13px}
 .composer textarea{flex:1;min-height:120px;width:100%;resize:none;border:1.5px solid var(--field);border-radius:10px;padding:12px 14px;
   background:#fffef9;font-size:15px;line-height:1.55;outline:none}
-.tags{display:flex;gap:6px;margin-bottom:10px}
-.tag{border:1px solid var(--line);background:#fff;border-radius:99px;padding:3px 12px;font-size:12px;font-weight:800;color:var(--muted)}
-.tag.on{background:var(--brown);border-color:var(--brown);color:#fff}
+/* "+ 📝" "+ ❓": secondary buttons in a warm brown, so they don't look like the white note cards
+   nor like the purple secondary buttons ("Next session"). Darker brown + white text on hover. */
+.btn.add{position:relative;background:#e8dac6;border-color:transparent;color:#6e5139;padding:6px 14px}
+.btn.add:hover{background:#8b6a4c;border-color:#8b6a4c;color:#fff}
+/* Tooltip with the button name, only on devices with a mouse (hover:hover = not on touch screens) */
+@media (hover:hover){
+  .btn.add[data-tip]:hover::after{content:attr(data-tip);position:absolute;left:50%;top:calc(100% + 6px);transform:translateX(-50%);
+    background:var(--violet-dark);color:#fff;font:700 11px/1 system-ui,sans-serif;padding:5px 8px;border-radius:6px;white-space:nowrap;pointer-events:none;z-index:50;box-shadow:0 3px 10px rgba(0,0,0,.18)} /* same look as the task-tag tooltips */
+}
+/* Filter row: tertiary buttons, bold text only, no background.
+   Normal = light brown; selected = purple (primary colour) + a line below. */
+.ftags{display:flex;align-items:baseline;gap:4px;margin-bottom:10px;font-size:12px}
+.ftags-lab{color:var(--faint);font-weight:600;margin-right:2px}
+.ftag{border:0;background:transparent;padding:2px 4px 3px;font-size:12px;font-weight:800;color:#b39c83;border-bottom:2px solid transparent}
+.ftag:not(:disabled):hover{color:#8b6a4c}
+.ftag.on{color:var(--brown);border-bottom-color:var(--brown)}
+.ftag:disabled{cursor:default} /* disabled = looks exactly like the normal state, it just can't be clicked */
 .cards{display:flex;flex-direction:column;gap:8px;padding:4px 44px 12px 6px}
 .card{display:grid;grid-template-columns:30px 1fr;gap:8px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px;position:relative;cursor:pointer;transition:transform .18s ease, box-shadow .18s ease, border-color .18s}
 .card.selected{transform:translateY(-2px) scale(1.015);border:2px solid var(--brown-2);background:#faf8fe;padding:9px 11px;box-shadow:0 10px 24px rgba(84,68,125,.22);z-index:1}

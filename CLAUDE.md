@@ -50,8 +50,21 @@ Funzionante e pubblicato (21 nov 2026). In uso quotidiano da René.
 
 - Lezioni di The Odin Project verificate sul sito il 21 nov 2026 (il corso aveva cambiato alcuni nomi: niente più "Computer Basics" e "Installation Overview"; "Arrays and Loops" ora è "Loops and Arrays"). Per MDN e Figma si usano link di ricerca, più stabili.
 
+## Next fixes (fatti il 24 nov 2026)
+
+Specifiche anche nella pagina Notion del progetto, sezione "Da migliorare".
+
+1. **Doppio clic su una nota o domanda** → entra subito in modifica, con il cursore dove si è cliccato (Daily tasks e sezione Notes; History e Cestino restano in sola lettura). Doppio clic sulla risposta di una domanda → modifica la risposta. Esc = annulla, Invio o clic fuori = salva. Se il testo viene svuotato, il clic fuori annulla (il testo vecchio resta). Il bottone ✍🏻 resta. Si salva (e compare "edited") solo se il testo è cambiato.
+2. **Pulsanti "+ 📝" e "+ ❓"** (pagina sinistra di Daily tasks): bottoni secondari color marrone chiaro (`.btn.add`, sfondo `#e8dac6`, testo `#6e5139`, hover `#8b6a4c` con testo bianco), solo icona, tooltip "New note" / "New question" al passaggio del mouse (solo su dispositivi con mouse).
+3. **Riga dei filtri sempre visibile** (anche senza note):
+   - Al massimo un tipo: "Filter:" + "All notes" disabilitato (stesso aspetto dello stato normale, non cliccabile).
+   - Almeno 2 tipi: "Filter: All notes · Notes · Questions"; dopo aver aggiunto una nota il filtro torna su "All notes".
+   - Filtri = pulsanti terziari (`.ftag`), solo testo in grassetto, senza sfondo. Normale = marrone chiaro `#b39c83`; selezionato = viola (`--brown`) + linea sotto.
+   - La sezione Notes non ha questi filtri (ha già due colonne Notes / Questions).
+
 ## Prossimi passi / idee in sospeso
 
+- Da migliorare (Notion): parte destra di Daily tasks visivamente più chiara, distinguere meglio note e domande dalle cose da fare.
 - Collegamento con Notion (rimandato: serve un piccolo server, il browser da solo non può scrivere su Notion).
 - Riepiloghi settimanali e statistiche (i dati per farli sono già salvati: orari delle spunte, inizio e fine giornate, log).
 - Eventuale sincronizzazione tra dispositivi (oggi i dati restano in un solo browser).

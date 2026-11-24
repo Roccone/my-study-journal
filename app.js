@@ -461,19 +461,22 @@ function notesPanel(date) {
       ${withAns ? `<div class="ans-line"></div><textarea id="cAns" placeholder="Write the answer…">${esc(ui.composer.answer)}</textarea>` : ""}</div>
       <div class="hint">Enter to save · Shift+Enter for a new line · paste or 🖼 to add images · links become clickable</div></div>`;
   }
-  if (isT) html += `<div class="add-row"><button class="btn" data-add="note">+ 📝</button><button class="btn" data-add="question">+ ❓</button></div>`;
+  // Add buttons: secondary (brown) buttons with only the icon; the label shows as a tooltip on hover (data-tip, see style.css)
+  if (isT) html += `<div class="add-row"><button class="btn add" data-add="note" data-tip="New note" aria-label="New note">+ 📝</button><button class="btn add" data-add="question" data-tip="New question" aria-label="New question">+ ❓</button></div>`;
+  // The filter row is ALWAYS drawn (even with no notes), so nothing jumps down when the first note of a new type is added
+  const c = noteCounts(items), both = c.n && c.q;
+  // With fewer than 2 types there is nothing to filter: we always show everything, so a filter left on "Notes"/"Questions" goes back to "all"
+  if (!both) ui.todayTag = "all";
+  const tag = ui.todayTag;
+  const labels = { all: "All notes", note: "Notes", question: "Questions" };
+  const tags = both
+    ? ["all", "note", "question"].map(t => `<button class="ftag ${tag === t ? "on" : ""}" data-tag="${t}">${labels[t]}</button>`).join("")
+    // Only one type (or none): "All notes" is shown but disabled — same look as the normal state, just not clickable
+    : `<button class="ftag" disabled>${labels.all}</button>`;
+  html += `<div class="ftags"><span class="ftags-lab">Filter:</span>${tags}</div>`;
   if (!items.length) return html + (isT ? "" : `<p class="empty">No notes on this day</p>`);
-  const c = noteCounts(items);
-  let tag = ui.todayTag;
-  let tags = "";
-  if (c.n && c.q) {
-    tags = ["all", "note", "question"].map(t => `<button class="tag ${tag === t ? "on" : ""}" data-tag="${t}">${{ all: "All", note: "Notes", question: "Questions" }[t]}</button>`).join("");
-  } else {
-    tag = c.n ? "note" : "question";
-    tags = `<button class="tag on">${c.n ? "Notes" : "Questions"}</button>`;
-  }
   const list = items.filter(n => tag === "all" || n.type === tag);
-  return html + `<div class="tags">${tags}</div><div class="scroll" data-keep="todayCards" style="flex:1"><div class="cards">${list.map(n => cardHtml(n)).join("")}</div></div>`;
+  return html + `<div class="scroll" data-keep="todayCards" style="flex:1"><div class="cards">${list.map(n => cardHtml(n)).join("")}</div></div>`;
 }
 function linkify(t) {
   return esc(t).replace(/(\bhttps?:\/\/[^\s<]+|\bwww\.[^\s<]+)/gi, m => {
@@ -1168,15 +1171,7 @@ document.addEventListener("click", e => {
   if (ds.editBtn) { ui.editing = ds.editBtn; ui.editText = null; ui.answering = null; rerenderKeep(); setTimeout(() => { const ed = $(`[data-edit="${ds.editBtn}"]`); if (ed) caretEnd(ed); }, 20); return; }
   if (ds.answerBtn) { ui.answering = ds.answerBtn; ui.editing = null; rerenderKeep(); focusSoon(`[data-answer="${ds.answerBtn}"]`); return; }
   if (ds.cancel !== undefined) { cancelEditImages(); ui.editing = null; ui.answering = null; rerenderKeep(); return; }
-  if (ds.saveEdit) {
-    const n = noteById(ds.saveEdit), v = val($(`[data-edit="${ds.saveEdit}"]`));
-    if (n && v) {
-      const keep = imgIds(v);
-      (n.images || []).filter(id => !keep.includes(id)).forEach(id => IDB.del(id));
-      n.text = v; n.images = keep; n.updatedAt = nowIso(); log("edit", n.id); save();
-    }
-    ui.editing = null; ui.editText = null; rerenderKeep(); return;
-  }
+  if (ds.saveEdit) { saveEditing(); rerenderKeep(); return; }
   if (ds.saveAnswer) {
     const n = noteById(ds.saveAnswer), v = $(`[data-answer="${ds.saveAnswer}"]`).value.trim();
     if (n) { n.answer = v; n.answeredAt = v ? nowIso() : null; n.updatedAt = nowIso(); log("answer", n.id); save(); }
@@ -1231,9 +1226,8 @@ document.addEventListener("click", e => {
       if (imgs.length) { noteById(nid).images = [...imgs]; save(); }
       if (ans) { const n = noteById(nid); n.answer = ans; n.answeredAt = nowIso(); save(); }
       ui.composer = null;
-      const items = liveNotes().filter(n => n.date === today());
-      const c = noteCounts(items);
-      ui.todayTag = c.n && c.q ? "all" : type;
+      // After adding a note we show "All notes", so the new note is always visible
+      ui.todayTag = "all";
       render(); toast(type === "note" ? "Note saved 📝" : "Question saved ❓"); break;
     }
     case "dayPrev":
@@ -1315,7 +1309,113 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape" && !$("#lightbox").hidden) { closeLightbox(); return; }
   if (e.key === "Escape" && !$("#modal").hidden) { closeModal(); return; }
   if (e.key === "Escape" && ui.selected) { ui.selected = null; document.querySelectorAll(".card.selected").forEach(c => c.classList.remove("selected")); }
-  if (e.key === "Escape") { if (calEl) closeCal(); else if (ui.composer) { ui.composer = null; render(); } else if (ui.editing || ui.answering) { ui.editing = ui.answering = null; rerenderKeep(); } }
+  // Esc = cancel. cancelEditImages() also deletes images pasted during this edit, so they don't stay around unused
+  if (e.key === "Escape") { if (calEl) closeCal(); else if (ui.composer) { ui.composer = null; render(); } else if (ui.editing || ui.answering) { if (ui.editing) cancelEditImages(); ui.editing = ui.answering = null; rerenderKeep(); } }
+});
+
+/* ---------- edit with a double-click, save by clicking outside ---------- */
+// Saves the note being edited (used by "✓ Save", Enter and click outside).
+// If the text was emptied, we treat it as "cancel": the old text stays (no accidental deletions).
+function saveEditing() {
+  const id = ui.editing, n = noteById(id), ed = $(`[data-edit="${id}"]`), v = val(ed);
+  if (n && v) {
+    if (v !== editSource(n)) { // only save (and mark "edited") if something really changed
+      const keep = imgIds(v);
+      (n.images || []).filter(x => !keep.includes(x)).forEach(x => IDB.del(x));
+      n.text = v; n.images = keep; n.updatedAt = nowIso(); log("edit", n.id); save();
+    }
+  } else cancelEditImages();
+  ui.editing = null; ui.editText = null;
+}
+// Same idea for the answer under a question; an emptied answer keeps the old one
+function saveAnswering() {
+  const id = ui.answering, n = noteById(id), ta = $(`[data-answer="${id}"]`), v = ta ? ta.value.trim() : "";
+  if (n && v && v !== (n.answer || "")) { n.answer = v; n.answeredAt = nowIso(); n.updatedAt = nowIso(); log("answer", n.id); save(); }
+  ui.answering = null;
+}
+
+// How many characters come before the point (node, offset) inside "root".
+// <br> counts as one character, like the "\n" it stands for. We use it to put the cursor where you double-clicked.
+function charOffset(root, node, offset) {
+  let count = 0, found = false;
+  const walk = el => {
+    for (const c of el.childNodes) {
+      if (found) return;
+      if (c === node) { count += c.nodeType === 3 ? offset : 0; found = true; return; }
+      if (c.nodeType === 3) count += c.textContent.length;
+      else if (c.nodeName === "BR") count += 1;
+      else if (c.nodeType === 1 && c.contains(node)) { walk(c); return; }
+      else if (c.nodeType === 1 && !c.matches(".th")) count += c.textContent.length; // images have no text
+    }
+  };
+  if (node.nodeType === 1 && node === root) { // clicked on the box itself: count the children before "offset"
+    [...root.childNodes].slice(0, offset).forEach(c => { count += c.nodeName === "BR" ? 1 : c.matches?.(".th") ? 0 : c.textContent.length; });
+    return count;
+  }
+  walk(root);
+  return count;
+}
+// The opposite: puts the cursor after "chars" characters inside the editor (or at the end if the text is shorter)
+function caretAt(ed, chars) {
+  ed.focus();
+  let left = chars, target = null, off = 0;
+  const walk = el => {
+    for (const c of el.childNodes) {
+      if (target) return;
+      if (c.nodeType === 3) { if (left <= c.textContent.length) { target = c; off = left; return; } left -= c.textContent.length; }
+      else if (c.nodeName === "BR") { if (left === 0) { target = el; off = [...el.childNodes].indexOf(c); return; } left -= 1; }
+      else if (c.nodeType === 1 && !c.matches(".th")) walk(c);
+    }
+  };
+  walk(ed);
+  if (!target) { caretEnd(ed); return; }
+  const r = document.createRange(); r.setStart(target, off); r.collapse(true);
+  const s = getSelection(); s.removeAllRanges(); s.addRange(r); ui.lastRange = r.cloneRange();
+}
+
+document.addEventListener("dblclick", e => {
+  const card = e.target.closest(".card[data-card]");
+  // Not on buttons, links or images (those keep their own click), and never in the trash (read-only)
+  if (!card || card.classList.contains("trash-card") || e.target.closest("button, a, img, .tools, textarea, .editor")) return;
+  const id = card.dataset.card, n = noteById(id);
+  if (!n) return;
+  // Double-click on the answer of a question → edit the answer
+  if (n.type === "question" && e.target.closest(".ans")) {
+    ui.answering = id; ui.editing = null; rerenderKeep(); focusSoon(`[data-answer="${id}"]`); return;
+  }
+  // Otherwise → edit the note/question text, with the cursor where you clicked.
+  // We remember the position as "number of characters" because the card is redrawn as an editor.
+  const textEl = card.querySelector(".txt, .qtext");
+  let chars = null;
+  const pos = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null;
+  if (textEl && pos && textEl.contains(pos.startContainer)) chars = charOffset(textEl, pos.startContainer, pos.startOffset);
+  getSelection().removeAllRanges(); // a double-click also selects a word: we don't want that
+  ui.editing = id; ui.editText = null; ui.answering = null; rerenderKeep();
+  setTimeout(() => { const ed = $(`[data-edit="${id}"]`); if (!ed) return; chars == null ? caretEnd(ed) : caretAt(ed, chars); }, 20);
+});
+
+// Click outside the card being edited = save.
+// It listens in the "capture" phase (the "true" at the end), so it runs BEFORE the other click handlers:
+// e.g. clicking outside the book saves first, then the book can close normally.
+// We save the data right away but redraw the page only after the click has finished,
+// otherwise the button you clicked (e.g. "Next session") would disappear before receiving the click.
+let pendingRedraw = null; // the old editor box, if the page still has to be redrawn
+document.addEventListener("mousedown", e => {
+  if (!ui.editing && !ui.answering) return;
+  const box = $(ui.editing ? `[data-edit="${ui.editing}"]` : `[data-answer="${ui.answering}"]`);
+  const card = box && box.closest(".card");
+  // Clicks inside the card (text, 🖼 button, Cancel/Save) or on popups (image preview, calendar, messages) don't count as "outside"
+  if (!card || card.contains(e.target) || e.target.closest(".lightbox, .modal-bg, .cal, .toast")) return;
+  if (ui.editing) saveEditing(); else saveAnswering();
+  pendingRedraw = box;
+}, true);
+document.addEventListener("mouseup", () => {
+  const box = pendingRedraw;
+  if (!box) return;
+  pendingRedraw = null;
+  // setTimeout 0 = "right after the click handlers have run".
+  // If the click already redrew the page (the old editor is gone) or a page is turning, there's nothing to do.
+  setTimeout(() => { if (box.isConnected && !ui.flipping) rerenderKeep(); }, 0);
 });
 document.addEventListener("focusout", e => { if (e.target.id === "nfDate") applyTypedFilter(e.target, true); });
 function applyTypedFilter(input, quiet) {
